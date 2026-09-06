@@ -1,0 +1,5 @@
+2026-09-06
+Toolchain: CPF-Flutter 3.27.4 / OpenHarmony SDK API 24 / hvigorw / ohpm 6.1.2.285
+Command: flutter build hap --release --dart-define=API_BASE_URL=http://127.0.0.1:8001
+Result: BLOCKED by DevEco signing prerequisite: configure debug signing in DevEco Studio (File -> Project Structure -> Signing Configs -> Automatically generate signature). No HAP was produced.
+Device check: flutter doctor reported no connected HarmonyOS/OpenHarmony devices.

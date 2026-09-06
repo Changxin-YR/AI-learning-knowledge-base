@@ -1,0 +1,5 @@
+2026-09-06
+Toolchain: CPF-Flutter 3.27.4 / Android SDK 35 / JDK 17
+Command: flutter build apk --release --dart-define=API_BASE_URL=http://10.0.2.2:8001
+Result: BLOCKED. Gradle 8.3 distribution download held an exclusive .zip lock and timed out after 120 seconds; no APK was produced.
+Device check: flutter doctor reported no connected Android devices.

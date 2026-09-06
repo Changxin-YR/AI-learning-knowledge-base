@@ -1,0 +1,3 @@
+2026-09-06
+Demo login -> KB create -> Markdown upload/index -> citation chat -> 7-day plan -> quiz submit/mastery -> public Git URL import -> SSE done event: PASS.
+Security boundary: unauthenticated /users/me = 401; loopback repository URL = 400.
