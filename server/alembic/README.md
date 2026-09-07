@@ -1,1 +1,1 @@
-Migration schema is applied by `app.main.migrate()` for the local demo. The same tables are portable to MySQL via `DATABASE_URL` in the deployment profile.
+Migration schema is applied by `app.main.migrate()` for the local demo. SQLite location is configured with `SQLITE_PATH`; a different database backend is outside the current demo path.

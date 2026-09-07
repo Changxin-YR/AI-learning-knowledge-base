@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import hashlib
+import ipaddress
+import io
 import json
 import os
 import re
 import secrets
 import sqlite3
+import socket
 import subprocess
 import tempfile
 import uuid
@@ -13,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import jwt
 from argon2 import PasswordHasher
@@ -26,7 +29,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = Path(os.getenv("SQLITE_PATH", DATA_DIR / "knowflow.db"))
-SECRET = os.getenv("JWT_SECRET", "knowflow-local-secret-change-me-32-bytes")
+DEFAULT_SECRET = "knowflow-local-secret-change-me-32-bytes"
+SECRET = os.getenv("JWT_SECRET", DEFAULT_SECRET)
+if os.getenv("APP_ENV", "development").lower() in {"production", "prod"} and SECRET == DEFAULT_SECRET:
+    raise RuntimeError("JWT_SECRET must be changed in production")
 TOKEN_TTL_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "60"))
 PH = PasswordHasher()
 
@@ -59,6 +65,9 @@ def migrate() -> None:
     CREATE TABLE IF NOT EXISTS quiz_attempts(id TEXT PRIMARY KEY, quiz_id TEXT NOT NULL REFERENCES quizzes(id), user_id TEXT NOT NULL REFERENCES users(id), score REAL NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS mastery(user_id TEXT NOT NULL REFERENCES users(id), knowledge TEXT NOT NULL, score REAL NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(user_id, knowledge));
     CREATE TABLE IF NOT EXISTS repository_imports(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), url TEXT NOT NULL, status TEXT NOT NULL, analysis TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, memory_type TEXT NOT NULL, content TEXT NOT NULL, importance REAL NOT NULL, source TEXT NOT NULL, metadata TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_accessed_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS agent_runs(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, conversation_id TEXT, message TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS tool_calls(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, tool_name TEXT NOT NULL, arguments TEXT NOT NULL, result_status TEXT NOT NULL, result TEXT NOT NULL, created_at TEXT NOT NULL);
     """
     with db() as conn:
         conn.executescript(schema)
@@ -103,6 +112,30 @@ class SubmitIn(BaseModel):
     answers: dict[str, str]
 
 
+class MemoryIn(BaseModel):
+    memory_type: str = Field(default="user_note", pattern="^(preference|learning_goal|weak_knowledge|project_context|user_note)$")
+    content: str = Field(min_length=1, max_length=4000)
+    importance: float = Field(default=0.5, ge=0, le=1)
+    source: str = Field(default="user", max_length=80)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RepositoryIn(BaseModel):
+    url: str = Field(min_length=1, max_length=500)
+    knowledge_base_id: str | None = None
+
+
+class AgentCallIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentRunIn(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    conversation_id: str | None = None
+    tool_calls: list[AgentCallIn] = Field(default_factory=list, max_length=8)
+
+
 def token_for(user_id: str) -> str:
     return jwt.encode({"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(minutes=TOKEN_TTL_MINUTES)}, SECRET, algorithm="HS256")
 
@@ -130,6 +163,17 @@ def owned_kb(user_id: str, kb_id: str) -> sqlite3.Row:
     return row
 
 
+def owned_conversation(user_id: str, conversation_id: str) -> sqlite3.Row:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM conversations WHERE id=? AND user_id=?",
+            (conversation_id, user_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Conversation not found")
+    return row
+
+
 def safe_filename(name: str) -> str:
     clean = Path(name).name
     if not clean or clean in {".", ".."} or len(clean) > 180:
@@ -143,11 +187,39 @@ def parse_content(filename: str, payload: bytes) -> str:
         raise HTTPException(415, "Unsupported file type")
     if len(payload) > 10 * 1024 * 1024:
         raise HTTPException(413, "File too large")
-    if suffix in {".pdf", ".docx", ".pptx"}:
-        text = payload.decode("utf-8", errors="ignore")
-    else:
-        text = payload.decode("utf-8", errors="strict")
-    return text.strip() or f"{filename} contains no extractable text."
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
+
+            text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages)
+        elif suffix == ".docx":
+            from docx import Document
+
+            document = Document(io.BytesIO(payload))
+            parts = [paragraph.text for paragraph in document.paragraphs]
+            parts.extend(cell.text for table in document.tables for row in table.rows for cell in row.cells)
+            text = "\n".join(parts)
+        elif suffix == ".pptx":
+            from pptx import Presentation
+
+            presentation = Presentation(io.BytesIO(payload))
+            text = "\n".join(
+                shape.text
+                for slide in presentation.slides
+                for shape in slide.shapes
+                if hasattr(shape, "text")
+            )
+        else:
+            text = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(422, "Text files must be UTF-8") from exc
+    except ImportError as exc:
+        raise HTTPException(500, "Document parser dependency is not installed") from exc
+    except Exception as exc:
+        raise HTTPException(422, "Document could not be parsed") from exc
+    if not text.strip():
+        raise HTTPException(422, "Document contains no extractable text")
+    return text.strip()
 
 
 def make_chunks(text: str) -> list[str]:
@@ -161,16 +233,149 @@ def make_chunks(text: str) -> list[str]:
     return chunks or [text[:900]]
 
 
+def search_tokens(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", text.lower())
+    compact = "".join(char for char in text.lower() if "\u4e00" <= char <= "\u9fff")
+    return set(words) | {compact[index : index + size] for size in (2, 3) for index in range(max(0, len(compact) - size + 1))}
+
+
 def retrieve(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> list[sqlite3.Row]:
-    terms = set(re.findall(r"[\w一-鿿]+", query.lower()))
+    terms = search_tokens(query)
     with db() as conn:
         if kb_id:
             owned_kb(user_id, kb_id)
             rows = conn.execute("SELECT c.*, d.filename, d.knowledge_base_id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.knowledge_base_id=?", (kb_id,)).fetchall()
         else:
             rows = conn.execute("SELECT c.*, d.filename, d.knowledge_base_id FROM chunks c JOIN documents d ON d.id=c.document_id JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE k.user_id=?", (user_id,)).fetchall()
-    ranked = sorted(rows, key=lambda row: len(terms & set(re.findall(r"[\w一-鿿]+", row["content"].lower()))), reverse=True)
-    return ranked[:limit]
+    scored = [(len(terms & search_tokens(row["content"])), row) for row in rows]
+    return [row for score, row in sorted(scored, key=lambda item: item[0], reverse=True) if score > 0][:limit]
+
+
+PUBLIC_REPOSITORY_HOSTS = {"github.com", "gitlab.com", "gitee.com"}
+TEXT_FILE_SUFFIXES = {".md", ".txt", ".py", ".dart", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".xml", ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs", ".c", ".h", ".cpp", ".gradle", ".properties"}
+DEPENDENCY_FILES = {"package.json", "pubspec.yaml", "requirements.txt", "pyproject.toml", "pom.xml", "build.gradle", "build.gradle.kts", "Cargo.toml", "go.mod"}
+
+
+def public_repository_url(raw_url: str):
+    parsed = urlparse(raw_url.strip())
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme not in {"http", "https"} or host not in PUBLIC_REPOSITORY_HOSTS or parsed.username or parsed.password:
+        raise HTTPException(400, "Only public GitHub, GitLab, or Gitee repositories are allowed")
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)}
+    except OSError as exc:
+        raise HTTPException(400, "Repository host could not be resolved") from exc
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            raise HTTPException(400, "Repository host resolves to a non-public address")
+    return parsed
+
+
+def clone_repository(url: str, target: Path) -> Path:
+    public_repository_url(url)
+    timeout = int(os.getenv("REPOSITORY_CLONE_TIMEOUT_SECONDS", "30"))
+    try:
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "--no-recurse-submodules", url, str(target)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise HTTPException(422, "Repository could not be cloned") from exc
+    return target
+
+
+def repository_files(root: Path) -> list[tuple[Path, int]]:
+    files: list[tuple[Path, int]] = []
+    total_size = 0
+    max_files = int(os.getenv("REPOSITORY_MAX_FILES", "2000"))
+    max_file_size = int(os.getenv("REPOSITORY_MAX_FILE_BYTES", str(1024 * 1024)))
+    max_total_size = int(os.getenv("REPOSITORY_MAX_TOTAL_BYTES", str(50 * 1024 * 1024)))
+    for path in root.rglob("*"):
+        if ".git" in path.parts or not path.is_file() or path.is_symlink():
+            continue
+        size = path.stat().st_size
+        if size > max_file_size:
+            continue
+        total_size += size
+        if total_size > max_total_size or len(files) >= max_files:
+            break
+        files.append((path, size))
+    return files
+
+
+def analyze_repository(root: Path, project_name: str) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    files = repository_files(root)
+    language_counts: dict[str, int] = {}
+    tree: list[str] = []
+    source_documents: list[tuple[str, str]] = []
+    readme = ""
+    dependencies: list[str] = []
+    frameworks: set[str] = set()
+    entry_points: list[str] = []
+    language_by_suffix = {".py": "Python", ".dart": "Dart", ".js": "JavaScript", ".ts": "TypeScript", ".java": "Java", ".kt": "Kotlin", ".go": "Go", ".rs": "Rust", ".rb": "Ruby", ".php": "PHP", ".cs": "C#", ".cpp": "C++", ".c": "C"}
+    for path, _ in files:
+        relative = path.relative_to(root).as_posix()
+        tree.append(relative)
+        suffix = path.suffix.lower()
+        if suffix in language_by_suffix:
+            language_counts[language_by_suffix[suffix]] = language_counts.get(language_by_suffix[suffix], 0) + 1
+        if path.name.lower().startswith("readme"):
+            entry_points.append(relative)
+            readme = path.read_text(encoding="utf-8", errors="replace")[:12000]
+            source_documents.append((relative, readme))
+        elif path.name in DEPENDENCY_FILES:
+            content = path.read_text(encoding="utf-8", errors="replace")[:12000]
+            dependencies.extend(line.strip() for line in content.splitlines() if line.strip() and not line.lstrip().startswith(("#", "//")))
+            source_documents.append((relative, content))
+            if path.name in {"pubspec.yaml", "build.gradle", "build.gradle.kts"}:
+                frameworks.add("Flutter/Gradle")
+            if path.name in {"requirements.txt", "pyproject.toml"}:
+                frameworks.add("Python")
+        elif suffix in TEXT_FILE_SUFFIXES and len(source_documents) < 25:
+            content = path.read_text(encoding="utf-8", errors="replace")[:12000]
+            source_documents.append((relative, content))
+        if path.name.lower() in {"main.py", "main.dart", "index.js", "index.ts", "main.go", "main.rs"}:
+            entry_points.append(relative)
+    summary = (readme.strip() or f"{project_name} contains {len(tree)} static files.")[:2000]
+    analysis = {
+        "name": project_name,
+        "languages": sorted(language_counts),
+        "frameworks": sorted(frameworks),
+        "dependencies": dependencies[:100],
+        "entry_points": sorted(set(entry_points))[:50],
+        "directory_tree": tree[:500],
+        "learning_summary": summary,
+    }
+    return analysis, source_documents
+
+
+def create_memory(user_id: str, body: MemoryIn) -> dict[str, Any]:
+    memory_id = str(uuid.uuid4())
+    timestamp = now()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (memory_id, user_id, body.memory_type, body.content.strip(), body.importance, body.source, json.dumps(body.metadata, ensure_ascii=False), timestamp, timestamp, timestamp),
+        )
+    return {"id": memory_id, "user_id": user_id, "memory_type": body.memory_type, "content": body.content.strip(), "importance": body.importance, "source": body.source, "metadata": body.metadata, "created_at": timestamp, "updated_at": timestamp, "last_accessed_at": timestamp}
+
+
+def search_memories(user_id: str, query: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM memories WHERE user_id=? ORDER BY importance DESC, updated_at DESC LIMIT 100", (user_id,)).fetchall()
+        if query:
+            terms = search_tokens(query)
+            rows = [row for row in rows if terms & search_tokens(row["content"])]
+        results = [dict(row) for row in rows[:limit]]
+        for row in results:
+            row["metadata"] = json.loads(row["metadata"])
+        if results:
+            conn.executemany("UPDATE memories SET last_accessed_at=? WHERE id=? AND user_id=?", [(now(), row["id"], user_id) for row in results])
+    return results
 
 
 @app.get("/api/v1/health")
@@ -272,12 +477,27 @@ def document_detail(document_id: str, user=Depends(current_user)) -> dict[str, A
     return {**dict(row), "chunks": [dict(chunk) for chunk in chunks]}
 
 
+@app.delete("/api/v1/documents/{document_id}")
+def delete_document(document_id: str, user=Depends(current_user)) -> dict[str, bool]:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT d.id FROM documents d JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE d.id=? AND k.user_id=?",
+            (document_id, user["id"]),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Document not found")
+        conn.execute("DELETE FROM documents WHERE id=?", (document_id,))
+    return {"deleted": True}
+
+
 def citation(row: sqlite3.Row) -> dict[str, Any]:
     return {"chunk_id": row["id"], "document_id": row["document_id"], "filename": row["filename"], "section": row["position"] + 1, "preview": row["content"][:180]}
 
 
 @app.post("/api/v1/chat")
 def chat(body: ChatIn, user=Depends(current_user)) -> dict[str, Any]:
+    if body.conversation_id:
+        owned_conversation(user["id"], body.conversation_id)
     rows = retrieve(user["id"], body.knowledge_base_id, body.message)
     if rows:
         best = rows[0]
@@ -358,7 +578,8 @@ def create_quiz(knowledge_base_id: str | None = None, user=Depends(current_user)
     with db() as conn:
         conn.execute("INSERT INTO quizzes VALUES (?,?,?,?)", (quiz_id, user["id"], knowledge_base_id, now()))
         conn.execute("INSERT INTO quiz_questions VALUES (?,?,?,?,?,?)", (question_id, quiz_id, question["prompt"], json.dumps(question["options"], ensure_ascii=False), question["answer"], knowledge))
-    return {"id": quiz_id, "questions": [question]}
+    public_question = {key: value for key, value in question.items() if key != "answer"}
+    return {"id": quiz_id, "questions": [public_question]}
 
 
 @app.post("/api/v1/quizzes/{quiz_id}/submit")
@@ -397,26 +618,207 @@ def stats(user=Depends(current_user)) -> dict[str, Any]:
         docs = conn.execute("SELECT COUNT(*) FROM documents d JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE k.user_id=?", (user["id"],)).fetchone()[0]
         tasks = conn.execute("SELECT COUNT(*), COALESCE(SUM(completed),0) FROM study_tasks t JOIN study_plans p ON p.id=t.plan_id WHERE p.user_id=?", (user["id"],)).fetchone()
         quizzes = conn.execute("SELECT COUNT(*), COALESCE(AVG(score),0) FROM quiz_attempts WHERE user_id=?", (user["id"],)).fetchone()
-    return {"knowledge_bases": kb, "documents": docs, "tasks_total": tasks[0], "tasks_completed": tasks[1], "task_completion_rate": round(tasks[1] / tasks[0] * 100, 2) if tasks[0] else 0, "quiz_attempts": quizzes[0], "quiz_accuracy": round(quizzes[1], 2), "learning_minutes": 0, "streak_days": 0}
+    return {"knowledge_bases": kb, "documents": docs, "tasks_total": tasks[0], "tasks_completed": tasks[1], "task_completion_rate": round(tasks[1] / tasks[0] * 100, 2) if tasks[0] else 0, "quiz_attempts": quizzes[0], "quiz_accuracy": round(quizzes[1], 2)}
+
+
+def index_repository(user_id: str, url: str, root: Path, knowledge_base_id: str | None = None) -> dict[str, Any]:
+    parsed = public_repository_url(url)
+    project_name = Path(parsed.path.rstrip("/")).name.removesuffix(".git") or parsed.hostname or "repository"
+    analysis, source_documents = analyze_repository(root, project_name)
+    kb_id = knowledge_base_id
+    if kb_id:
+        owned_kb(user_id, kb_id)
+    else:
+        kb_id = str(uuid.uuid4())
+        with db() as conn:
+            conn.execute("INSERT INTO knowledge_bases VALUES (?,?,?,?)", (kb_id, user_id, project_name[:80], now()))
+    indexed = 0
+    with db() as conn:
+        for filename, content in source_documents:
+            if not content.strip():
+                continue
+            document_id = str(uuid.uuid4())
+            chunks = make_chunks(content)
+            conn.execute("INSERT INTO documents VALUES (?,?,?,?,?,?,?)", (document_id, kb_id, filename[:180], "text/plain", content, "indexed", now()))
+            for position, chunk in enumerate(chunks):
+                conn.execute("INSERT INTO chunks VALUES (?,?,?,?,?)", (str(uuid.uuid4()), document_id, chunk, position, json.dumps({"filename": filename, "section": position + 1, "repository": url}, ensure_ascii=False)))
+            indexed += 1
+        import_id = str(uuid.uuid4())
+        conn.execute("INSERT INTO repository_imports VALUES (?,?,?,?,?,?)", (import_id, user_id, url, "indexed", json.dumps(analysis, ensure_ascii=False), now()))
+    return {"id": import_id, "url": url, "status": "indexed", "knowledge_base_id": kb_id, "document_count": indexed, "analysis": analysis}
 
 
 @app.post("/api/v1/repositories/import", status_code=201)
-def import_repository(body: dict[str, str], user=Depends(current_user)) -> dict[str, Any]:
-    url = body.get("url", "").strip()
-    parsed = urlparse(url)
-    if parsed.scheme not in {"https", "http"} or parsed.hostname in {"localhost", "127.0.0.1", "0.0.0.0"} or not parsed.hostname:
-        raise HTTPException(400, "Only public HTTP(S) repositories are allowed")
-    repo = Path(parsed.path.rstrip("/")).name or parsed.hostname
-    analysis = {"name": repo.removesuffix(".git"), "technology": ["Git"], "entry_points": ["README.md"], "modules": ["source tree", "dependency metadata"], "next_steps": ["阅读 README", "定位入口文件", "绘制模块关系"]}
-    import_id = str(uuid.uuid4())
+def import_repository(body: RepositoryIn, user=Depends(current_user)) -> dict[str, Any]:
+    parsed = public_repository_url(body.url)
+    with tempfile.TemporaryDirectory(prefix="knowflow-repo-") as workspace:
+        target = Path(workspace) / "repo"
+        root = clone_repository(body.url, target)
+        return index_repository(user["id"], body.url, root, body.knowledge_base_id)
+
+
+@app.post("/api/v1/memories", status_code=201)
+def save_memory(body: MemoryIn, user=Depends(current_user)) -> dict[str, Any]:
+    return create_memory(user["id"], body)
+
+
+@app.get("/api/v1/memories")
+def list_memories(query: str | None = None, user=Depends(current_user)) -> list[dict[str, Any]]:
+    return search_memories(user["id"], query)
+
+
+@app.get("/api/v1/memories/{memory_id}")
+def memory_detail(memory_id: str, user=Depends(current_user)) -> dict[str, Any]:
     with db() as conn:
-        conn.execute("INSERT INTO repository_imports VALUES (?,?,?,?,?,?)", (import_id, user["id"], url, "indexed", json.dumps(analysis, ensure_ascii=False), now()))
-    return {"id": import_id, "url": url, "status": "indexed", "analysis": analysis}
+        row = conn.execute("SELECT * FROM memories WHERE id=? AND user_id=?", (memory_id, user["id"])).fetchone()
+    if not row:
+        raise HTTPException(404, "Memory not found")
+    result = dict(row)
+    result["metadata"] = json.loads(result["metadata"])
+    return result
+
+
+@app.delete("/api/v1/memories/{memory_id}")
+def delete_memory(memory_id: str, user=Depends(current_user)) -> dict[str, bool]:
+    with db() as conn:
+        cursor = conn.execute("DELETE FROM memories WHERE id=? AND user_id=?", (memory_id, user["id"]))
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "Memory not found")
+    return {"deleted": True}
+
+
+TOOL_SPECS = {
+    "search_knowledge": {"description": "Search the user's indexed knowledge", "write": False, "required": ["query"], "properties": {"query": {"type": "string"}, "knowledge_base_id": {"type": "string"}}},
+    "read_document": {"description": "Read an owned indexed document", "write": False, "required": ["document_id"], "properties": {"document_id": {"type": "string"}}},
+    "get_learning_stats": {"description": "Read learning statistics", "write": False, "required": [], "properties": {}},
+    "get_mastery": {"description": "Read mastery records", "write": False, "required": [], "properties": {}},
+    "create_study_plan": {"description": "Create a study plan", "write": True, "required": ["goal"], "properties": {"goal": {"type": "string"}, "days": {"type": "integer", "minimum": 1, "maximum": 14}}},
+    "list_tasks": {"description": "List owned learning tasks", "write": False, "required": [], "properties": {}},
+    "update_task": {"description": "Update an owned task", "write": True, "required": ["task_id", "completed"], "properties": {"task_id": {"type": "string"}, "completed": {"type": "boolean"}}},
+    "generate_quiz": {"description": "Generate a quiz from an owned knowledge base", "write": True, "required": [], "properties": {"knowledge_base_id": {"type": "string"}}},
+    "get_knowledge_graph": {"description": "Read the mastery knowledge graph", "write": False, "required": [], "properties": {}},
+    "save_memory": {"description": "Save a durable user memory", "write": True, "required": ["content"], "properties": {"memory_type": {"type": "string"}, "content": {"type": "string"}, "importance": {"type": "number"}, "source": {"type": "string"}}},
+    "search_memory": {"description": "Search durable user memories", "write": False, "required": [], "properties": {"query": {"type": "string"}}},
+    "import_repository": {"description": "Clone and statically analyze a public repository", "write": True, "required": ["url"], "properties": {"url": {"type": "string"}, "knowledge_base_id": {"type": "string"}}},
+}
+
+
+def dispatch_tool(user_id: str, name: str, arguments: dict[str, Any]) -> Any:
+    spec = TOOL_SPECS.get(name)
+    if not spec:
+        raise ValueError("Unknown tool")
+    missing = [key for key in spec["required"] if key not in arguments]
+    if missing:
+        raise ValueError(f"Missing required arguments: {', '.join(missing)}")
+    with db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if name == "search_knowledge":
+        return {"citations": [citation(row) for row in retrieve(user_id, arguments.get("knowledge_base_id"), arguments["query"])]}
+    if name == "read_document":
+        return document_detail(arguments["document_id"], user)
+    if name == "get_learning_stats":
+        return stats(user)
+    if name == "get_mastery":
+        return mastery(user)
+    if name == "create_study_plan":
+        return create_plan(PlanIn(goal=arguments["goal"], days=arguments.get("days", 7)), user)
+    if name == "list_tasks":
+        return list_tasks(user)
+    if name == "update_task":
+        return update_task(arguments["task_id"], {"completed": arguments["completed"]}, user)
+    if name == "generate_quiz":
+        return create_quiz(arguments.get("knowledge_base_id"), user)
+    if name == "get_knowledge_graph":
+        return knowledge_graph(user)
+    if name == "save_memory":
+        return create_memory(user_id, MemoryIn(**arguments))
+    if name == "search_memory":
+        return search_memories(user_id, arguments.get("query"))
+    if name == "import_repository":
+        return import_repository(RepositoryIn(**arguments), user)
+    raise ValueError("Unsupported tool")
+
+
+def provider_configured() -> bool:
+    return all(os.getenv(key) for key in ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL"))
+
+
+def provider_completion(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    endpoint = os.getenv("OPENAI_BASE_URL", "").rstrip("/")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint += "/chat/completions"
+    tools = [{"type": "function", "function": {"name": name, "description": spec["description"], "parameters": {"type": "object", "properties": spec["properties"], "required": spec["required"]}}} for name, spec in TOOL_SPECS.items()]
+    payload = json.dumps({"model": os.environ["OPENAI_MODEL"], "messages": messages, "tools": tools, "tool_choice": "auto", "temperature": 0.2}).encode()
+    request = Request(endpoint, data=payload, headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}", "Content-Type": "application/json"}, method="POST")
+    try:
+        with urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(502, "Configured model provider failed") from exc
+
+
+def audit_tool_call(run_id: str, user_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    status = "completed"
+    try:
+        result = dispatch_tool(user_id, name, arguments)
+    except (HTTPException, ValueError, TypeError) as exc:
+        status, result = "failed", {"error": str(exc.detail if isinstance(exc, HTTPException) else exc)}
+    with db() as conn:
+        conn.execute("INSERT INTO tool_calls VALUES (?,?,?,?,?,?,?,?)", (str(uuid.uuid4()), run_id, user_id, name, json.dumps(arguments, ensure_ascii=False), status, json.dumps(result, ensure_ascii=False, default=str), now()))
+    return {"name": name, "status": status, "result": result}
+
+
+def provider_agent(user_id: str, run_id: str, body: AgentRunIn) -> tuple[str, list[dict[str, Any]]]:
+    messages: list[dict[str, Any]] = [{"role": "system", "content": "Use the supplied tools for KnowFlow user data. Never invent tool results."}, {"role": "user", "content": body.message}]
+    results: list[dict[str, Any]] = []
+    for _ in range(4):
+        response = provider_completion(messages)
+        assistant = response.get("choices", [{}])[0].get("message", {})
+        calls = assistant.get("tool_calls") or []
+        if not calls:
+            return assistant.get("content", ""), results
+        messages.append(assistant)
+        for call in calls:
+            function = call.get("function", {})
+            name = function.get("name", "")
+            try:
+                arguments = json.loads(function.get("arguments", "{}"))
+            except json.JSONDecodeError:
+                arguments = {}
+            result = audit_tool_call(run_id, user_id, name, arguments)
+            results.append(result)
+            messages.append({"role": "tool", "tool_call_id": call.get("id", str(uuid.uuid4())), "content": json.dumps(result["result"], ensure_ascii=False, default=str)})
+    raise HTTPException(502, "Model provider exceeded tool-call limit")
 
 
 @app.get("/api/v1/agents/tools")
 def agent_tools(user=Depends(current_user)) -> list[dict[str, Any]]:
-    return [{"name": name, "write": name in {"create_study_plan", "create_task", "update_task", "submit_quiz_result"}} for name in ["search_knowledge", "read_document_chunk", "get_learning_stats", "get_mastery_profile", "create_study_plan", "create_task", "update_task", "generate_quiz", "submit_quiz_result", "get_knowledge_graph", "save_memory", "search_memory", "import_public_repository"]]
+    return [{"name": name, "description": spec["description"], "write": spec["write"], "json_schema": {"type": "object", "properties": spec["properties"], "required": spec["required"]}} for name, spec in TOOL_SPECS.items()]
+
+
+@app.post("/api/v1/agents/run")
+def run_agent(body: AgentRunIn, user=Depends(current_user)) -> dict[str, Any]:
+    if not body.tool_calls and not provider_configured():
+        raise HTTPException(503, "No tool calls supplied and no configured model provider")
+    run_id = str(uuid.uuid4())
+    with db() as conn:
+        conn.execute("INSERT INTO agent_runs VALUES (?,?,?,?,?,?)", (run_id, user["id"], body.conversation_id, body.message, "running", now()))
+    if body.tool_calls:
+        results = [audit_tool_call(run_id, user["id"], call.name, call.arguments) for call in body.tool_calls]
+        content = "工具执行完成" if all(item["status"] == "completed" for item in results) else "部分工具执行失败"
+    else:
+        content, results = provider_agent(user["id"], run_id, body)
+    failed = any(item["status"] != "completed" for item in results)
+    with db() as conn:
+        conn.execute("UPDATE agent_runs SET status=? WHERE id=?", ("failed" if failed else "completed", run_id))
+    return {"run_id": run_id, "content": content, "tool_calls": results}
+
+
+@app.get("/api/v1/agents/runs")
+def agent_runs(user=Depends(current_user)) -> list[dict[str, Any]]:
+    with db() as conn:
+        rows = conn.execute("SELECT tc.*, ar.message FROM tool_calls tc JOIN agent_runs ar ON ar.id=tc.run_id WHERE tc.user_id=? ORDER BY tc.created_at DESC", (user["id"],)).fetchall()
+    return [dict(row) for row in rows]
 
 
 if __name__ == "__main__":

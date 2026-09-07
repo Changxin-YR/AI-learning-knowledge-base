@@ -1,0 +1,152 @@
+User ID #100
+  current mission lists:{
+    Mission ID #34  mission name #[#com.knowflow.knowflow_ai:entry:EntryAbility]  lockedState #0  mission affinity #[]
+      AbilityRecord ID #70
+        app name [com.knowflow.knowflow_ai]
+        main name [EntryAbility]
+        bundle name [com.knowflow.knowflow_ai]
+        ability type [PAGE]
+        state #FOREGROUND  start time [3241171]
+        app state #FOREGROUND
+        ready #1  window attached #0  launcher #0
+        callee connections:
+        isKeepAlive: false
+ }
+  ExtensionRecords:
+    uri [/com.huawei.hmos.inputmethod/default/InputService]
+      AbilityRecord ID #68   state #ACTIVE   start time [2994122]
+      main name [InputService]
+      bundle name [com.huawei.hmos.inputmethod]
+      ability type [SERVICE]
+      app state #FOREGROUND
+        isKeepAlive: false
+      Connections: 1
+       > com.huawei.hmos.inputmethod/InputService   connectionState #CONNECTED
+    uri [/com.huawei.hms.adsservice/ads_service/AdsCommonService]
+      AbilityRecord ID #4   state #ACTIVE   start time [15711]
+      main name [AdsCommonService]
+      bundle name [com.huawei.hms.adsservice]
+      ability type [SERVICE]
+      app state #BEGIN
+        isKeepAlive: true
+      Connections: 0
+    uri [/com.huawei.hmsapp.intelligent/service/ResidentServiceAbility]
+      AbilityRecord ID #5   state #ACTIVE   start time [15849]
+      main name [ResidentServiceAbility]
+      bundle name [com.huawei.hmsapp.intelligent]
+      ability type [SERVICE]
+      app state #BEGIN
+        isKeepAlive: true
+      Connections: 0
+    uri [/com.ohos.contactsdataability/contactsdata/ContactsDataAbility]
+      AbilityRecord ID #17   state #ACTIVE   start time [22510]
+      main name [ContactsDataAbility]
+      bundle name [com.ohos.contactsdataability]
+      ability type [SERVICE]
+      app state #BEGIN
+        isKeepAlive: false
+      Connections: 1
+       > com.ohos.contactsdataability/ContactsDataAbility   connectionState #CONNECTED
+    uri [/com.ohos.contactsdataability/contactsdata/com.ohos.contactsdataability.ServiceAbility]
+      AbilityRecord ID #12   state #ACTIVE   start time [21097]
+      main name [com.ohos.contactsdataability.ServiceAbility]
+      bundle name [com.ohos.contactsdataability]
+      ability type [SERVICE]
+      app state #BEGIN
+        isKeepAlive: false
+      Connections: 0
+    uri [/com.ohos.medialibrary.medialibrarydata/entry/DataShareExtAbility]
+      AbilityRecord ID #3   state #ACTIVE   start time [15670]
+      main name [DataShareExtAbility]
+      bundle name [com.ohos.medialibrary.medialibrarydata]
+      ability type [SERVICE]
+      app state #BEGIN
+        isKeepAlive: false
+      Connections: 1
+       > com.ohos.medialibrary.medialibrarydata/DataShareExtAbility   connectionState #CONNECTED
+    uri [/com.ohos.sceneboard/engineservice/EngineServiceAbility3]
+      AbilityRecord ID #62   state #FOREGROUND   start time [2938086]
+      main name [EngineServiceAbility]
+      bundle name [com.ohos.sceneboard]
+      ability type [UIEXTENSION]
+      app state #FOREGROUND
+        isKeepAlive: true
+      Connections: 0
+      root host bundle name [com.ohos.sceneboard]
+      root host module name [phone_sceneboard]
+      root host ability name [com.ohos.sceneboard.MainAbility]
+      pid: 16792
+    uri [/com.ohos.sceneboard/phone_sceneboard/com.ohos.sceneboard.MainAbility]
+      AbilityRecord ID #61   state #ACTIVE   start time [2933293]
+      main name [com.ohos.sceneboard.MainAbility]
+      bundle name [com.ohos.sceneboard]
+      ability type [SERVICE]
+      app state #FOREGROUND
+        isKeepAlive: true
+      Connections: 0
+    uri [/com.ohos.sceneboard/themeservice_core/ThemeServiceAbility]
+      AbilityRecord ID #63   state #ACTIVE   start time [2938089]
+      main name [ThemeServiceAbility]
+      bundle name [com.ohos.sceneboard]
+      ability type [SERVICE]
+      app state #FOREGROUND
+        isKeepAlive: true
+      Connections: 0
+    PendingWantRecords:
+        PendWantRecord ID #1  type #4
+        bundle name []
+        result who []
+        request code #0  flags #134217728
+        resolved type []
+        Wants:
+          uri [///]
+          resolved types []
+  AppRunningRecords:
+    AppRunningRecord ID #0
+      process name [com.huawei.hmos.location]
+      pid #1539  uid #20004
+      state #READY
+    AppRunningRecord ID #1
+      process name [com.huawei.emulatormultiscreen]
+      pid #1561  uid #20001
+      state #READY
+    AppRunningRecord ID #2
+      process name [com.ohos.medialibrary.medialibrarydata]
+      pid #1620  uid #20020029
+      state #READY
+    AppRunningRecord ID #3
+      process name [com.huawei.hms.adsservice]
+      pid #1655  uid #20020013
+      state #READY
+    AppRunningRecord ID #4
+      process name [com.huawei.hmsapp.intelligent]
+      pid #1672  uid #20020012
+      state #READY
+    AppRunningRecord ID #5
+      process name [com.ohos.contactsdataability]
+      pid #1803  uid #20020036
+      state #READY
+    AppRunningRecord ID #6
+      process name [com.huawei.hms.pushservice]
+      pid #2075  uid #20003
+      state #READY
+    AppRunningRecord ID #7
+      process name [com.ohos.sceneboard]
+      pid #16762  uid #20020008
+      state #FOREGROUND
+      uiextension provider #0
+        pid #16792
+    AppRunningRecord ID #8
+      process name [com.ohos.sceneboard:EngineServiceAbility:3]
+      pid #16792  uid #20020008
+      state #FOREGROUND
+      root caller #0
+        pid #16762
+    AppRunningRecord ID #9
+      process name [com.huawei.hmos.inputmethod:inputMethod]
+      pid #17264  uid #20020016
+      state #FOREGROUND
+    AppRunningRecord ID #10
+      process name [com.knowflow.knowflow_ai]
+      pid #18155  uid #20020065
+      state #FOREGROUND

@@ -1,6 +1,6 @@
 # KnowFlow AI
 
-KnowFlow AI 是一个 Flutter + FastAPI 的个人学习知识库。它提供 Demo 登录、文档索引、可引用问答、学习计划、测验掌握度、知识图谱摘要与公开仓库学习入口。系统覆盖 RAG 检索增强生成、向量检索、Rerank、流式推理、Agent Tool Calling、长期记忆和任务自动化，并通过平台抽象层隔离 Android/OpenHarmony 差异。
+KnowFlow AI 是一个 Flutter + FastAPI 的个人学习知识库。当前可用能力包括 Demo 登录、PDF/DOCX/PPTX/Markdown 文档索引、可引用的中文/英文混合词法检索、学习计划与任务、测验掌握度、公开仓库静态分析与入库、用户长期记忆，以及带 schema 校验和审计记录的 Agent 工具执行。Qdrant/Embedding、模型驱动的自动 tool-call 需要配置对应 Provider；没有 Provider 时保留本地检索和显式结构化工具调用，不伪装成向量或模型能力。
 
 ## 启动
 

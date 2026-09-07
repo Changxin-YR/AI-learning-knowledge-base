@@ -11,3 +11,7 @@ artifacts/**/*.log
 .idea/
 .tmp-provision-tool/
 .tmp-sdk-sign/
+.ohos-signing.local.json
+artifacts/ohos/*.json
+mobile/android/key.properties
+mobile/android/*.keystore

@@ -1,3 +1,3 @@
-# Agent Runtime
+# Agent Tool Registry
 
-The API exposes a registry of named business tools. Tools operate through application functions and never accept raw SQL. The current deterministic runtime records tool events for retrieval and exposes write-capable tools for plans, tasks, quiz results and imports. A production LLM provider can be enabled server-side without putting a key in Flutter.
+The API exposes named tools with descriptions, required JSON arguments, and read/write flags. `/agents/run` executes caller-supplied structured tool calls through service functions, validates required arguments, enforces user ownership, and records `agent_runs`/`tool_calls` audit rows. When `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` are configured, the same endpoint runs up to four OpenAI-compatible assistant/tool/result turns; without those variables, clients must supply structured calls in the local demo. Memory tools use the owned `memories` table.
