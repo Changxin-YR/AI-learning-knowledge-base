@@ -5,8 +5,8 @@ KnowFlow AI 是一个 Flutter + FastAPI 的个人学习知识库。它提供 Dem
 ## 启动
 
 ```powershell
-.scripts\start-infra.ps1
-.scripts\start-backend.ps1
+.\scripts\start-infra.ps1
+.\scripts\start-backend.ps1
 cd mobile; flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001
 ```
 
@@ -15,8 +15,8 @@ cd mobile; flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001
 ## 验证
 
 ```powershell
-.scripts\test-all.ps1
-.scripts\build-all.ps1
+.\scripts\test-all.ps1
+.\scripts\build-all.ps1
 ```
 
 架构、API、RAG、测试和双端验收记录见 `docs/`。

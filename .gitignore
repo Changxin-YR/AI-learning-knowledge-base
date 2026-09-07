@@ -9,3 +9,5 @@ server/data/
 artifacts/**/*.log
 *.iml
 .idea/
+.tmp-provision-tool/
+.tmp-sdk-sign/

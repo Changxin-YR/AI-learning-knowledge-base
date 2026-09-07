@@ -1,3 +1,5 @@
-2026-09-06
-Demo login -> KB create -> Markdown upload/index -> citation chat -> 7-day plan -> quiz submit/mastery -> public Git URL import -> SSE done event: PASS.
-Security boundary: unauthenticated /users/me = 401; loopback repository URL = 400.
+2026-09-07
+Live process: `http://127.0.0.1:8001`
+Demo login -> KB create -> Markdown upload/index -> citation chat -> 7-day plan -> quiz submit/mastery -> SSE done event: PASS.
+Observed response: health=ok, ready=ready, upload=indexed, citations=3, plan_tasks=7, mastery=100.0, sse_done=true.
+Security boundary (automated suite): unauthenticated /users/me = 401; loopback repository URL = 400.

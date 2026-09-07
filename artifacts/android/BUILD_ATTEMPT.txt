@@ -1,5 +1,7 @@
-2026-09-06
+2026-09-07
 Toolchain: CPF-Flutter 3.27.4 / Android SDK 35 / JDK 17
 Command: flutter build apk --release --dart-define=API_BASE_URL=http://10.0.2.2:8001
-Result: BLOCKED. Gradle 8.3 distribution download held an exclusive .zip lock and timed out after 120 seconds; no APK was produced.
-Device check: flutter doctor reported no connected Android devices.
+Result: PASS. Gradle 8.3 distribution completed and Android Build-Tools 33.0.1 was installed; APK produced at `artifacts/android/knowflow-ai-release.apk` (21,006,376 bytes).
+Android Studio module check: `mobile/android/gradlew.bat :app:assembleDebug --no-daemon` -> BUILD SUCCESSFUL.
+Real device run: `flutter run -d emulator-5554 --release --dart-define=API_BASE_URL=http://10.0.2.2:8001` -> APK rebuilt, installed, and launched on `Pixel_10_Pro_XL` (Android API 37). `pidof com.knowflow.knowflow_ai` returned a live process; UI dump confirmed the home tabs and AI input; an AI answer with citation was rendered.
+Evidence: `artifacts/android/real-device.png`, `artifacts/android/real-ai-response.png`.
