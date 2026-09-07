@@ -1,6 +1,10 @@
 import os
+from pathlib import Path
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_knowflow.db"
+TEST_DB = Path(__file__).with_name("test_knowflow.db")
+if TEST_DB.exists():
+    TEST_DB.unlink()
+os.environ["SQLITE_PATH"] = str(TEST_DB)
 os.environ["DEMO_AI_MODE"] = "1"
 
 from fastapi.testclient import TestClient
