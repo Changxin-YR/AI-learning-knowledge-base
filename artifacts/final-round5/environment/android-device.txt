@@ -1,0 +1,6 @@
+AVD=KnowFlow_API34
+API=34
+Android=14
+ABI=x86_64
+Device=sdk_gphone64_x86_64
+Boot=1

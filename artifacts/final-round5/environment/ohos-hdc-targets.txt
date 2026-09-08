@@ -1,0 +1,2 @@
+COM3		UART	Ready	unknown...	hdc
+COM4		UART	Ready	unknown...	hdc
