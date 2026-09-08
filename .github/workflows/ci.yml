@@ -27,6 +27,7 @@ jobs:
       JWT_SECRET: ci-only-secret-that-is-never-used-in-production
       DEMO_AI_MODE: "1"
       RAG_MODE: lexical
+      EMBEDDING_PROVIDER: local
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -43,6 +44,18 @@ jobs:
 
       - name: Run backend tests
         run: python -m pytest -q
+
+      - name: Run deterministic RAG evaluation
+        working-directory: .
+        run: python scripts/rag-eval.py --output artifacts/rag-eval/ci.json
+
+      - name: Upload RAG evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-evaluation
+          path: artifacts/rag-eval/ci.json
+          if-no-files-found: error
+          retention-days: 30
 
   flutter:
     name: Flutter / analyze + test
