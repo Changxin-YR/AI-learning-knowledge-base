@@ -1,22 +1,17 @@
 # KnowFlow AI Final Acceptance
 
-The current round is documented in [ROUND6_FINAL_ACCEPTANCE.md](ROUND6_FINAL_ACCEPTANCE.md).
+The current round is documented in [ROUND7_FINAL_PASS_REPORT.md](ROUND7_FINAL_PASS_REPORT.md).
 
-- Branch: `round6-ohos-emulator-final`
-- Round 6 baseline: `e044e6fbefbe839c3873f76e7d95e67bf95f2d95`
-- Verdict: `CONDITIONAL PASS`
+- Branch: `round7-final-pass`
+- Round 7 baseline: `5f70397e988c849373b0e1e233e5838e1a3f1556`
+- Verdict: `PASS`
 
-Backend tests, Flutter analysis/tests, Qdrant health, Android stable-emulator
-runtime acceptance, fresh Android APK, fresh HarmonyOS x64 HAP, and fresh
-HarmonyOS ARM64 HAP pass. The HarmonyOS API22 x86_64 guest also boots, exposes
-HDC, installs the HAP, launches the app, and passes H01-H05.
+Backend tests, Flutter analysis/tests, Qdrant live health, Android stable-
+emulator runtime acceptance, HarmonyOS API22 emulator runtime acceptance, the
+HarmonyOS compatibility picker, DeepSeek live RAG/Agent/Memory checks, and
+fresh Android/x64/ARM64 builds pass. The API22 system picker remains a known
+emulator limitation; the tested allowlisted compatibility picker completes the
+same real bytes-to-upload/parser/indexing flow.
 
-The remaining runtime gap is the API22 system `FilePickerUIExtAbility`, which
-freezes inside `com.huawei.hmos.filemanager:sysPicker/filePicker` during the
-standard app picker flow. System logs and a direct `OPEN_FILE` control are
-summarized in `artifacts/final-round6/logs/picker-evidence-summary.txt`; this
-prevents the upload-dependent HarmonyOS E2E steps from being completed on this
-local image.
-
-Physical devices, ARM64 runtime, production store signing, and real cloud
-LLM/embedding providers are `OUT OF CURRENT SCOPE`.
+Physical devices, ARM64 runtime, production store signing, and paid embedding
+providers are `OUT OF CURRENT SCOPE`.

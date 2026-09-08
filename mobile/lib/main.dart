@@ -127,8 +127,19 @@ class PickedDocument {
 class DocumentPicker {
   static const _channel = MethodChannel('knowflow/file_picker');
 
-  Future<PickedDocument?> pick() async {
-    final result = await _channel.invokeMethod<dynamic>('pickDocument');
+  Future<PickedDocument?> pick(BuildContext context) async {
+    if (Platform.operatingSystem == 'ohos') {
+      return _pickCompatibility(context);
+    }
+    try {
+      return _decode(await _channel.invokeMethod<dynamic>('pickDocument'));
+    } on PlatformException catch (error) {
+      if (error.code != 'picker_unavailable') rethrow;
+      return _pickCompatibility(context);
+    }
+  }
+
+  PickedDocument? _decode(dynamic result) {
     if (result == null) return null;
     final map = Map<Object?, Object?>.from(result as Map);
     final name = map['name'] as String?;
@@ -137,6 +148,41 @@ class DocumentPicker {
       throw const FormatException('Invalid document picker result');
     }
     return PickedDocument(name: name, bytes: bytes);
+  }
+
+  Future<PickedDocument?> _pickCompatibility(BuildContext context) async {
+    final raw = await _channel.invokeMethod<List<dynamic>>('listCompatDocuments');
+    final files = (raw ?? [])
+        .map((item) => Map<Object?, Object?>.from(item as Map))
+        .map((item) => item['name'] as String)
+        .toList();
+    if (files.isEmpty) throw StateError('No compatibility documents available');
+    if (!context.mounted) return null;
+    final name = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+              title: const Text('兼容模式选择文件'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView(
+                    shrinkWrap: true,
+                    children: files
+                        .map((file) => ListTile(
+                              leading: const Icon(Icons.description_outlined),
+                              title: Text(file),
+                              onTap: () => Navigator.pop(dialogContext, file),
+                            ))
+                        .toList()),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('取消'))
+              ],
+            ));
+    if (name == null) return null;
+    return _decode(await _channel.invokeMethod<dynamic>(
+        'readCompatDocument', {'name': name}));
   }
 }
 
@@ -172,7 +218,7 @@ class _KnowledgeBaseDetailDialogState extends State<KnowledgeBaseDetailDialog> {
       uploadStatus = '选择中…';
     });
     try {
-      final picked = await DocumentPicker().pick();
+      final picked = await DocumentPicker().pick(context);
       if (picked == null) {
         if (mounted) setState(() => uploadStatus = null);
         return;

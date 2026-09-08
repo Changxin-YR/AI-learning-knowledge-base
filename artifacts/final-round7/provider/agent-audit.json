@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "count": 20,
+  "tool_names": [
+    "create_study_plan",
+    "get_knowledge_graph",
+    "get_learning_stats",
+    "get_mastery",
+    "list_tasks",
+    "save_memory",
+    "search_knowledge",
+    "search_memory"
+  ],
+  "statuses": [
+    "completed",
+    "failed"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "run_id": "93c61d66-63f4-4bd7-a788-d2445806c900",
+  "content": "搜索没有返回任何命中结果（citations 为空）。\n\n因此，知识库 `92b98ee4-43d6-4108-b078-70285bdf7047` 中没有关于 `KNOWFLOW_NONEXISTENT_FOUNDERS_BIRTH_YEAR` 的相关信息。我不会进行猜测。",
+  "tool_calls": [
+    {
+      "name": "search_knowledge",
+      "status": "completed",
+      "citationCount": 0
+    }
+  ]
+}
