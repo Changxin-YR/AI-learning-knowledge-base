@@ -1,63 +1,105 @@
 import json
 from pathlib import Path
 
-CORPUS = {
-    "zh": "中文检索支持按标题和段落切分，并返回 citation。",
-    "en": "Python lists preserve insertion order and support indexed access.",
-    "mixed": "Flutter uses Dart widgets; FastAPI serves the backend API.",
-    "code": "def parse_document(payload): return payload.decode('utf-8')",
-    "repo": "The repository uses Flutter, FastAPI, SQLite and Qdrant.",
-    "quiz": "Quiz accuracy updates mastery from 0 to 100.",
-    "memory": "User memories are owned by the authenticated account.",
-    "security": "Repository DNS resolution rejects private and loopback addresses.",
-    "tasks": "Study tasks can be marked completed and update the completion rate.",
-    "conversation": "A second chat turn reuses the same conversation id.",
-}
-
-CASES = [
-    ("中文标题切分", "zh"), ("citation 原文", "zh"), ("段落检索", "zh"),
-    ("Python ordered list", "en"), ("indexed access list", "en"), ("preserve insertion order", "en"),
-    ("Flutter Dart backend", "mixed"), ("FastAPI Dart", "mixed"), ("widgets API", "mixed"),
-    ("decode utf8 function", "code"), ("parse payload", "code"), ("document parser code", "code"),
-    ("repository technology", "repo"), ("Qdrant backend", "repo"), ("SQLite Flutter", "repo"),
-    ("quiz mastery", "quiz"), ("accuracy score", "quiz"), ("mastery 100", "quiz"),
-    ("memory ownership", "memory"), ("authenticated memory", "memory"), ("account memories", "memory"),
-    ("private IP repository", "security"), ("DNS loopback", "security"), ("repository redirect security", "security"),
-    ("complete study task", "tasks"), ("task completion rate", "tasks"), ("learning task done", "tasks"),
-    ("same conversation", "conversation"), ("second chat turn", "conversation"), ("conversation id reuse", "conversation"),
-]
+from app.main import LocalEmbeddingProvider, cosine_similarity, rrf_fusion, search_tokens
 
 
-def ranks():
-    from app.main import LocalEmbeddingProvider, cosine_similarity, rrf_fusion, search_tokens
-
-    provider = LocalEmbeddingProvider(dimensions=256)
-    doc_ids = list(CORPUS)
-    vectors = provider.embed_documents(list(CORPUS.values()))
-    rows = []
-    for query, expected in CASES:
-        lexical = sorted(doc_ids, key=lambda doc: len(search_tokens(query) & search_tokens(CORPUS[doc])), reverse=True)
-        query_vector = provider.embed_query(query)
-        vector = sorted(range(len(doc_ids)), key=lambda i: cosine_similarity(query_vector, vectors[i]), reverse=True)
-        vector_ids = [doc_ids[i] for i in vector]
-        hybrid = [item[0] for item in rrf_fusion([lexical, vector_ids], limit=len(doc_ids))]
-        rows.append((expected, lexical, vector_ids, hybrid))
-    return rows
+DATASET = Path(__file__).with_name("eval_dataset.json")
 
 
-def metrics(rows, key):
-    recall3 = sum(expected in ranking[:3] for expected, *rankings in rows for ranking in [rankings[key]]) / len(rows)
-    recall5 = sum(expected in ranking[:5] for expected, *rankings in rows for ranking in [rankings[key]]) / len(rows)
-    mrr = sum((1 / (ranking.index(expected) + 1) if expected in ranking else 0) for expected, *rankings in rows for ranking in [rankings[key]]) / len(rows)
-    citation_hit = sum(ranking[0] == expected for expected, *rankings in rows for ranking in [rankings[key]]) / len(rows)
-    return {"Recall@3": round(recall3, 4), "Recall@5": round(recall5, 4), "MRR": round(mrr, 4), "Citation Hit Rate": round(citation_hit, 4), "No-answer false citation rate": 0.0}
+def _load():
+    payload = json.loads(DATASET.read_text(encoding="utf-8"))
+    return payload["documents"], payload["queries"]
+
+
+def _metrics(queries, rankings):
+    answerable = [(case, ranking) for case, ranking in zip(queries, rankings) if case["relevant"]]
+    no_answer = [(case, ranking) for case, ranking in zip(queries, rankings) if not case["relevant"]]
+
+    def hit_at(k):
+        return sum(
+            any(doc_id in case["relevant"] for doc_id in ranking[:k])
+            for case, ranking in answerable
+        ) / len(answerable)
+
+    reciprocal_ranks = []
+    citation_hits = 0
+    for case, ranking in answerable:
+        first_rank = next(
+            (index for index, doc_id in enumerate(ranking, 1) if doc_id in case["relevant"]),
+            None,
+        )
+        reciprocal_ranks.append(1 / first_rank if first_rank else 0.0)
+        citation_hits += bool(ranking and ranking[0] in case["relevant"])
+
+    return {
+        "Recall@3": round(hit_at(3), 4),
+        "Recall@5": round(hit_at(5), 4),
+        "MRR": round(sum(reciprocal_ranks) / len(reciprocal_ranks), 4),
+        "Citation Hit Rate": round(citation_hits / len(answerable), 4),
+        "No-answer false citation rate": round(
+            sum(bool(ranking) for _case, ranking in no_answer) / len(no_answer),
+            4,
+        ),
+    }
 
 
 def test_vector_eval_writes_lexical_vector_hybrid_comparison():
-    rows = ranks()
-    report = {"case_count": len(rows), "Lexical": metrics(rows, 0), "Vector": metrics(rows, 1), "Hybrid": metrics(rows, 2), "note": "Local deterministic embedding provider; Qdrant runtime evaluation is separate."}
-    output = Path(__file__).parents[3] / "artifacts" / "final-round3" / "rag-eval" / "vector-evaluation.json"
+    documents, queries = _load()
+    provider = LocalEmbeddingProvider(dimensions=256)
+    document_ids = [document["id"] for document in documents]
+    document_vectors = provider.embed_documents([document["text"] for document in documents])
+
+    lexical_rankings = []
+    vector_rankings = []
+    hybrid_rankings = []
+
+    for case in queries:
+        query = case["query"]
+        query_tokens = search_tokens(query)
+        lexical_scored = [
+            (len(query_tokens & search_tokens(document["text"])), document["id"])
+            for document in documents
+        ]
+        lexical = [
+            doc_id
+            for score, doc_id in sorted(lexical_scored, key=lambda item: (-item[0], item[1]))
+            if score > 0
+        ]
+
+        query_vector = provider.embed_query(query)
+        vector_scored = [
+            (cosine_similarity(query_vector, vector), doc_id)
+            for doc_id, vector in zip(document_ids, document_vectors)
+        ]
+        vector = [
+            doc_id
+            for score, doc_id in sorted(vector_scored, key=lambda item: (-item[0], item[1]))
+            if score >= 0.35
+        ]
+
+        hybrid = [
+            item_id
+            for item_id, _score in rrf_fusion([lexical, vector], limit=len(documents))
+        ] if lexical or vector else []
+
+        lexical_rankings.append(lexical)
+        vector_rankings.append(vector)
+        hybrid_rankings.append(hybrid)
+
+    report = {
+        "case_count": len(queries),
+        "provider": "LocalEmbeddingProvider",
+        "Lexical": _metrics(queries, lexical_rankings),
+        "Vector": _metrics(queries, vector_rankings),
+        "Hybrid": _metrics(queries, hybrid_rankings),
+        "note": "Deterministic CI baseline; neural provider quality is evaluated separately.",
+    }
+
+    output = Path(__file__).parents[3] / "artifacts" / "rag-eval" / "deterministic-ci.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    assert report["case_count"] == 30
+
+    assert report["case_count"] >= 50
     assert all("MRR" in report[name] for name in ("Lexical", "Vector", "Hybrid"))
+    assert all(0 <= report[name]["No-answer false citation rate"] <= 1 for name in ("Lexical", "Vector", "Hybrid"))
