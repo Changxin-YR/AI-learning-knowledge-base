@@ -1,0 +1,17 @@
+[
+  {
+    "path": "C:\\Users\\27363\\Desktop\\flutteer\\artifacts\\final-round3\\android\\knowflow-ai-release.apk",
+    "size": 21323465,
+    "sha256": "670FC0DBFADB52425BACA859F39B76304677491FB0CA8408ACCFE095678B59E1"
+  },
+  {
+    "path": "C:\\Users\\27363\\Desktop\\flutteer\\artifacts\\final-round3\\ohos\\knowflow-ai-ohos-x64-release.hap",
+    "size": 20618179,
+    "sha256": "CDEE0B1CF5FF5FFCDC99AC4CC4FE90A07A5BE89CAA7525F06A9EDD13B4D0CDAA"
+  },
+  {
+    "path": "C:\\Users\\27363\\Desktop\\flutteer\\artifacts\\final-round3\\ohos\\knowflow-ai-ohos-arm64-release.hap",
+    "size": 19391904,
+    "sha256": "03CEDF8F3FBCC40846E29FEC879BCDA74D4A4F40893F6B6884D4BE94ACA85396"
+  }
+]

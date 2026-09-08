@@ -1,8 +1,11 @@
 import io
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
 TEST_DB = Path(tempfile.gettempdir()) / f"knowflow-test-{os.getpid()}.db"
 TEST_DB.unlink(missing_ok=True)
 os.environ.pop("DATABASE_URL", None)
@@ -293,6 +296,18 @@ def test_repository_rejects_public_host_resolving_to_private_ip(monkeypatch):
         headers=headers,
     )
     assert response.status_code == 400
+
+
+def test_repository_redirect_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "public_repository_url", lambda url: object())
+    monkeypatch.setattr(
+        main.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(subprocess.CalledProcessError(128, args[0], stderr="redirect denied")),
+    )
+    with pytest.raises(HTTPException) as error:
+        main.clone_repository("https://github.com/example/redirect", tmp_path / "repo")
+    assert error.value.status_code == 422
 
 
 def test_agent_requires_provider_or_structured_tool_calls():

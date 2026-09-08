@@ -1,0 +1,6 @@
+Captured during A06 at 2026-09-08 10:29 (adb logcat output was later rotated/cleared):
+10484 10521 E DocsApplication: java.lang.IllegalStateException
+10441 10441 E oid.documentsui: No package ID ff found for resource ID 0xffffffff.
+677 1431 D CoreBackPreview: Window{... com.google.android.documentsui/com.android.documentsui.picker.PickActivity ...}
+677 696 I ActivityTaskManager: Displayed com.google.android.documentsui/com.android.documentsui.picker.PickActivity for user 0: +7s934ms
+Observed screenshot: white DocumentsUI surface; uiautomator dump returned `null root node`; `mCurrentFocus=null`.

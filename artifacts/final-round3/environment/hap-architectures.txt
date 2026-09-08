@@ -1,0 +1,2 @@
+x64 HAP: libs/x86_64/libapp.so, libs/x86_64/libflutter.so
+arm64 HAP: libs/arm64-v8a/libapp.so, libs/arm64-v8a/libflutter.so

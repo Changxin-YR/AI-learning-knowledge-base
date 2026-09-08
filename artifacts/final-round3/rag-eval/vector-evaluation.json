@@ -1,0 +1,25 @@
+{
+  "case_count": 30,
+  "Lexical": {
+    "Recall@3": 0.9,
+    "Recall@5": 0.9333,
+    "MRR": 0.8835,
+    "Citation Hit Rate": 0.8333,
+    "No-answer false citation rate": 0.0
+  },
+  "Vector": {
+    "Recall@3": 0.9,
+    "Recall@5": 0.9333,
+    "MRR": 0.8596,
+    "Citation Hit Rate": 0.8,
+    "No-answer false citation rate": 0.0
+  },
+  "Hybrid": {
+    "Recall@3": 0.9,
+    "Recall@5": 0.9333,
+    "MRR": 0.8835,
+    "Citation Hit Rate": 0.8333,
+    "No-answer false citation rate": 0.0
+  },
+  "note": "Local deterministic embedding provider; Qdrant runtime evaluation is separate."
+}

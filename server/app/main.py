@@ -3,6 +3,8 @@ from __future__ import annotations
 import ipaddress
 import io
 import json
+import hashlib
+import math
 import os
 import re
 import secrets
@@ -35,6 +37,11 @@ if os.getenv("APP_ENV", "development").lower() in {"production", "prod"} and SEC
     raise RuntimeError("JWT_SECRET must be changed in production")
 TOKEN_TTL_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "60"))
 PH = PasswordHasher()
+RAG_MODE = os.getenv("RAG_MODE", "hybrid").lower()
+QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333").rstrip("/")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "knowflow_chunks")
+EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "256"))
+VECTOR_SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.35"))
 
 
 def now() -> str:
@@ -239,7 +246,153 @@ def search_tokens(text: str) -> set[str]:
     return set(words) | {compact[index : index + size] for size in (2, 3) for index in range(max(0, len(compact) - size + 1))}
 
 
-def retrieve(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> list[sqlite3.Row]:
+class EmbeddingProvider:
+    dimensions: int
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_documents([text])[0]
+
+
+class LocalEmbeddingProvider(EmbeddingProvider):
+    """Small, deterministic local vectorizer for offline/dev use."""
+
+    def __init__(self, dimensions: int = EMBEDDING_DIMENSIONS):
+        if dimensions < 8:
+            raise ValueError("Embedding dimensions must be at least 8")
+        self.dimensions = dimensions
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors = []
+        for text in texts:
+            vector = [0.0] * self.dimensions
+            for token in search_tokens(text):
+                digest = hashlib.sha256(token.encode("utf-8")).digest()
+                index = int.from_bytes(digest[:4], "big") % self.dimensions
+                vector[index] += 1.0 if len(token) > 1 else 0.5
+            norm = math.sqrt(sum(value * value for value in vector))
+            vectors.append([value / norm for value in vector] if norm else vector)
+        return vectors
+
+
+class OpenAIEmbeddingProvider(EmbeddingProvider):
+    def __init__(self):
+        self.endpoint = os.getenv("EMBEDDING_BASE_URL", "").rstrip("/")
+        self.api_key = os.getenv("EMBEDDING_API_KEY", "")
+        self.model = os.getenv("EMBEDDING_MODEL", "")
+        self.dimensions = int(os.getenv("EMBEDDING_DIMENSIONS", str(EMBEDDING_DIMENSIONS)))
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        endpoint = self.endpoint
+        if not endpoint.endswith("/embeddings"):
+            endpoint += "/embeddings"
+        payload = json.dumps({"model": self.model, "input": texts}).encode("utf-8")
+        request = Request(endpoint, data=payload, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, method="POST")
+        try:
+            with urlopen(request, timeout=20) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            vectors = [item["embedding"] for item in sorted(data["data"], key=lambda item: item.get("index", 0))]
+            if not vectors or any(len(vector) != len(vectors[0]) for vector in vectors):
+                raise ValueError("Embedding provider returned invalid vectors")
+            self.dimensions = len(vectors[0])
+            return vectors
+        except Exception as exc:
+            raise RuntimeError("Configured embedding provider failed") from exc
+
+
+def embedding_provider() -> EmbeddingProvider:
+    provider = os.getenv("EMBEDDING_PROVIDER", "local").lower()
+    if provider == "openai" or (provider == "auto" and all(os.getenv(key) for key in ("EMBEDDING_BASE_URL", "EMBEDDING_API_KEY", "EMBEDDING_MODEL"))):
+        return OpenAIEmbeddingProvider()
+    return LocalEmbeddingProvider()
+
+
+def cosine_similarity(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        return 0.0
+    denominator = math.sqrt(sum(value * value for value in left) * sum(value * value for value in right))
+    return sum(a * b for a, b in zip(left, right)) / denominator if denominator else 0.0
+
+
+def _qdrant_request(method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(f"{QDRANT_URL}{path}", data=data, headers={"Content-Type": "application/json"}, method=method)
+    with urlopen(request, timeout=5) as response:
+        body = response.read()
+    return json.loads(body.decode("utf-8")) if body else {}
+
+
+def qdrant_available() -> bool:
+    try:
+        _qdrant_request("GET", "/collections")
+        return True
+    except Exception:
+        return False
+
+
+def ensure_qdrant_collection(dimensions: int) -> None:
+    try:
+        existing = _qdrant_request("GET", f"/collections/{QDRANT_COLLECTION}")
+        size = existing.get("result", {}).get("config", {}).get("params", {}).get("vectors", {}).get("size")
+        if size and size != dimensions:
+            raise RuntimeError(f"Qdrant collection dimension is {size}, expected {dimensions}")
+        return
+    except Exception as exc:
+        if "HTTP Error 404" not in str(exc):
+            raise
+    _qdrant_request("PUT", f"/collections/{QDRANT_COLLECTION}", {"vectors": {"size": dimensions, "distance": "Cosine"}})
+
+
+def qdrant_upsert(points: list[dict[str, Any]], dimensions: int) -> bool:
+    if not points:
+        return True
+    try:
+        ensure_qdrant_collection(dimensions)
+        _qdrant_request("PUT", f"/collections/{QDRANT_COLLECTION}/points?wait=true", {"points": points})
+        return True
+    except Exception:
+        return False
+
+
+def qdrant_delete(filter_body: dict[str, Any]) -> bool:
+    try:
+        _qdrant_request("POST", f"/collections/{QDRANT_COLLECTION}/points/delete?wait=true", {"filter": filter_body})
+        return True
+    except Exception:
+        return False
+
+
+def qdrant_search(vector: list[float], user_id: str, kb_id: str | None, limit: int, threshold: float) -> list[tuple[str, float]]:
+    must = [{"key": "user_id", "match": {"value": user_id}}]
+    if kb_id:
+        must.append({"key": "knowledge_base_id", "match": {"value": kb_id}})
+    try:
+        ensure_qdrant_collection(len(vector))
+        result = _qdrant_request("POST", f"/collections/{QDRANT_COLLECTION}/points/search", {"vector": vector, "limit": limit, "with_payload": True, "score_threshold": threshold, "filter": {"must": must}})
+        return [(str(item["id"]), float(item.get("score", 0))) for item in result.get("result", [])]
+    except Exception:
+        return []
+
+
+def _chunk_rows(user_id: str, kb_id: str | None, ids: list[str]) -> list[sqlite3.Row]:
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    params: list[Any] = [*ids, user_id]
+    where = f"c.id IN ({placeholders}) AND k.user_id=?"
+    if kb_id:
+        owned_kb(user_id, kb_id)
+        where += " AND d.knowledge_base_id=?"
+        params.append(kb_id)
+    with db() as conn:
+        rows = conn.execute(f"SELECT c.*, d.filename, d.knowledge_base_id FROM chunks c JOIN documents d ON d.id=c.document_id JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE {where}", params).fetchall()
+    by_id = {row["id"]: row for row in rows}
+    return [by_id[chunk_id] for chunk_id in ids if chunk_id in by_id]
+
+
+def retrieve_lexical(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> list[sqlite3.Row]:
     terms = search_tokens(query)
     with db() as conn:
         if kb_id:
@@ -249,6 +402,51 @@ def retrieve(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> lis
             rows = conn.execute("SELECT c.*, d.filename, d.knowledge_base_id FROM chunks c JOIN documents d ON d.id=c.document_id JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE k.user_id=?", (user_id,)).fetchall()
     scored = [(len(terms & search_tokens(row["content"])), row) for row in rows]
     return [row for score, row in sorted(scored, key=lambda item: item[0], reverse=True) if score > 0][:limit]
+
+
+def retrieve_vector(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> list[sqlite3.Row]:
+    provider = embedding_provider()
+    matches = qdrant_search(provider.embed_query(query), user_id, kb_id, limit, float(os.getenv("VECTOR_SCORE_THRESHOLD", str(VECTOR_SCORE_THRESHOLD))))
+    return _chunk_rows(user_id, kb_id, [chunk_id for chunk_id, _score in matches])
+
+
+def rrf_fusion(rankings: list[list[str]], k: int = 60, limit: int = 4) -> list[tuple[str, float]]:
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, item_id in enumerate(ranking, 1):
+            scores[item_id] = scores.get(item_id, 0.0) + 1 / (k + rank)
+    return sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
+
+
+def retrieve(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> list[sqlite3.Row]:
+    mode = os.getenv("RAG_MODE", RAG_MODE).lower()
+    if mode == "lexical":
+        return retrieve_lexical(user_id, kb_id, query, limit)
+    if mode == "vector":
+        return retrieve_vector(user_id, kb_id, query, limit)
+    lexical = retrieve_lexical(user_id, kb_id, query, limit)
+    vector = retrieve_vector(user_id, kb_id, query, limit)
+    fused_ids = [item_id for item_id, _score in rrf_fusion([[row["id"] for row in lexical], [row["id"] for row in vector]], limit=limit)]
+    return _chunk_rows(user_id, kb_id, fused_ids)
+
+
+def index_chunks(user_id: str, kb_id: str, document_id: str, chunks: list[tuple[str, str, int, str]] | list[tuple[str, str, int]]) -> bool:
+    if not chunks:
+        return True
+    try:
+        provider = embedding_provider()
+        vectors = provider.embed_documents([chunk for _chunk_id, chunk, _position, *_ in chunks])
+        points = []
+        for chunk_record, vector in zip(chunks, vectors):
+            chunk_id, _chunk, _position, *chunk_document = chunk_record
+            points.append({
+                "id": chunk_id,
+                "vector": vector,
+                "payload": {"user_id": user_id, "knowledge_base_id": kb_id, "document_id": chunk_document[0] if chunk_document else document_id, "chunk_id": chunk_id},
+            })
+        return qdrant_upsert(points, provider.dimensions)
+    except Exception:
+        return False
 
 
 PUBLIC_REPOSITORY_HOSTS = {"github.com", "gitlab.com", "gitee.com"}
@@ -277,7 +475,7 @@ def clone_repository(url: str, target: Path) -> Path:
     timeout = int(os.getenv("REPOSITORY_CLONE_TIMEOUT_SECONDS", "30"))
     try:
         subprocess.run(
-            ["git", "clone", "--depth", "1", "--no-recurse-submodules", url, str(target)],
+            ["git", "-c", "http.followRedirects=false", "clone", "--depth", "1", "--no-recurse-submodules", url, str(target)],
             check=True,
             capture_output=True,
             text=True,
@@ -387,7 +585,7 @@ def health() -> dict[str, str]:
 def ready() -> dict[str, Any]:
     with db() as conn:
         conn.execute("SELECT 1")
-    return {"status": "ready", "database": "sqlite", "demo_ai": os.getenv("DEMO_AI_MODE", "1") == "1"}
+    return {"status": "ready", "database": "sqlite", "qdrant": qdrant_available(), "rag_mode": os.getenv("RAG_MODE", RAG_MODE), "embedding_provider": os.getenv("EMBEDDING_PROVIDER", "local"), "demo_ai": os.getenv("DEMO_AI_MODE", "1") == "1"}
 
 
 @app.post("/api/v1/auth/demo")
@@ -439,6 +637,7 @@ def create_kb(body: KBIn, user=Depends(current_user)) -> dict[str, Any]:
 @app.delete("/api/v1/knowledge-bases/{kb_id}")
 def delete_kb(kb_id: str, user=Depends(current_user)) -> dict[str, bool]:
     owned_kb(user["id"], kb_id)
+    qdrant_delete({"must": [{"key": "user_id", "match": {"value": user["id"]}}, {"key": "knowledge_base_id", "match": {"value": kb_id}}]})
     with db() as conn:
         conn.execute("DELETE FROM knowledge_bases WHERE id=?", (kb_id,))
     return {"deleted": True}
@@ -460,11 +659,15 @@ async def upload_document(kb_id: str, file: UploadFile = File(...), user=Depends
     content = parse_content(filename, payload)
     document_id = str(uuid.uuid4())
     chunks = make_chunks(content)
+    chunk_records: list[tuple[str, str, int]] = []
     with db() as conn:
         conn.execute("INSERT INTO documents VALUES (?,?,?,?,?,?,?)", (document_id, kb_id, filename, file.content_type or "text/plain", content, "indexed", now()))
         for position, chunk in enumerate(chunks):
-            conn.execute("INSERT INTO chunks VALUES (?,?,?,?,?)", (str(uuid.uuid4()), document_id, chunk, position, json.dumps({"filename": filename, "section": position + 1})))
-    return {"id": document_id, "filename": filename, "status": "indexed", "chunk_count": len(chunks)}
+            chunk_id = str(uuid.uuid4())
+            conn.execute("INSERT INTO chunks VALUES (?,?,?,?,?)", (chunk_id, document_id, chunk, position, json.dumps({"filename": filename, "section": position + 1})))
+            chunk_records.append((chunk_id, chunk, position))
+    vector_indexed = index_chunks(user["id"], kb_id, document_id, chunk_records)
+    return {"id": document_id, "filename": filename, "status": "indexed", "chunk_count": len(chunks), "vector_indexed": vector_indexed}
 
 
 @app.get("/api/v1/documents/{document_id}")
@@ -481,12 +684,13 @@ def document_detail(document_id: str, user=Depends(current_user)) -> dict[str, A
 def delete_document(document_id: str, user=Depends(current_user)) -> dict[str, bool]:
     with db() as conn:
         row = conn.execute(
-            "SELECT d.id FROM documents d JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE d.id=? AND k.user_id=?",
+            "SELECT d.id, d.knowledge_base_id FROM documents d JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE d.id=? AND k.user_id=?",
             (document_id, user["id"]),
         ).fetchone()
         if not row:
             raise HTTPException(404, "Document not found")
         conn.execute("DELETE FROM documents WHERE id=?", (document_id,))
+    qdrant_delete({"must": [{"key": "user_id", "match": {"value": user["id"]}}, {"key": "knowledge_base_id", "match": {"value": row["knowledge_base_id"]}}, {"key": "document_id", "match": {"value": document_id}}]})
     return {"deleted": True}
 
 
@@ -633,6 +837,7 @@ def index_repository(user_id: str, url: str, root: Path, knowledge_base_id: str 
         with db() as conn:
             conn.execute("INSERT INTO knowledge_bases VALUES (?,?,?,?)", (kb_id, user_id, project_name[:80], now()))
     indexed = 0
+    vector_chunks: list[tuple[str, str, int]] = []
     with db() as conn:
         for filename, content in source_documents:
             if not content.strip():
@@ -641,11 +846,14 @@ def index_repository(user_id: str, url: str, root: Path, knowledge_base_id: str 
             chunks = make_chunks(content)
             conn.execute("INSERT INTO documents VALUES (?,?,?,?,?,?,?)", (document_id, kb_id, filename[:180], "text/plain", content, "indexed", now()))
             for position, chunk in enumerate(chunks):
-                conn.execute("INSERT INTO chunks VALUES (?,?,?,?,?)", (str(uuid.uuid4()), document_id, chunk, position, json.dumps({"filename": filename, "section": position + 1, "repository": url}, ensure_ascii=False)))
+                chunk_id = str(uuid.uuid4())
+                conn.execute("INSERT INTO chunks VALUES (?,?,?,?,?)", (chunk_id, document_id, chunk, position, json.dumps({"filename": filename, "section": position + 1, "repository": url}, ensure_ascii=False)))
+                vector_chunks.append((chunk_id, chunk, position, document_id))
             indexed += 1
         import_id = str(uuid.uuid4())
         conn.execute("INSERT INTO repository_imports VALUES (?,?,?,?,?,?)", (import_id, user_id, url, "indexed", json.dumps(analysis, ensure_ascii=False), now()))
-    return {"id": import_id, "url": url, "status": "indexed", "knowledge_base_id": kb_id, "document_count": indexed, "analysis": analysis}
+    vector_indexed = index_chunks(user_id, kb_id, "repository", vector_chunks) if vector_chunks else True
+    return {"id": import_id, "url": url, "status": "indexed", "knowledge_base_id": kb_id, "document_count": indexed, "analysis": analysis, "vector_indexed": vector_indexed}
 
 
 @app.post("/api/v1/repositories/import", status_code=201)

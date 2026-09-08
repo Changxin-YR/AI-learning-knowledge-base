@@ -1,0 +1,10 @@
+DevEco Studio=C:\Program Files\Huawei\DevEco Studio
+OpenHarmony SDK=C:\Users\27363\Desktop\max\openharmony-sdk (Flutter doctor), DevEco SDK=C:\Program Files\Huawei\DevEco Studio\sdk
+API available=24 (Flutter doctor)
+hdc=C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe
+hdc_version=3.2.0d
+hvigor=C:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw
+node=v24.15.0
+ohpm=6.1.2.285
+hdc_list_targets=[Empty]
+guest_or_physical_target=not available

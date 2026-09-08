@@ -1,0 +1,10 @@
+commit=b82d40ac0a240fadfdcfbe3d2f93e1f1100a5b5e
+platform_tools=C:\Users\27363\Desktop\max\android-sdk\platform-tools
+adb=C:\Users\27363\Desktop\max\android-sdk\platform-tools\adb.exe
+adb_version=Android Debug Bridge version 1.0.41; Version 37.0.0-14910828
+android_sdk_env=C:\Users\27363\Desktop\max\android-sdk (session only)
+android_sdk_image_root=C:\Users\27363\AppData\Local\Android\Sdk
+emulator=C:\Users\27363\AppData\Local\Android\Sdk\emulator\emulator.exe
+avd=Pixel_10_Pro_XL
+target=emulator-5554
+boot_completed=1
