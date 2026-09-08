@@ -364,10 +364,16 @@ class _HomeShellState extends State<HomeShell> {
                 content: TextField(controller: controller, autofocus: true),
                 actions: [
                   TextButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        Navigator.pop(context);
+                      },
                       child: const Text('取消')),
                   FilledButton(
-                      onPressed: () => Navigator.pop(context, controller.text),
+                      onPressed: () {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        Navigator.pop(context, controller.text);
+                      },
                       child: const Text('创建'))
                 ]));
     controller.dispose();
