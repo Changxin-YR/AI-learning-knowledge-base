@@ -1,0 +1,8 @@
+{
+  "status": "ready",
+  "database": "sqlite",
+  "qdrant": true,
+  "rag_mode": "hybrid",
+  "embedding_provider": "local",
+  "demo_ai": true
+}

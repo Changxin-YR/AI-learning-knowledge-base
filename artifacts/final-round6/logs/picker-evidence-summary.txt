@@ -1,0 +1,44 @@
+KnowFlow picker invocation:
+09-08 20:01:54.888  1312  1312 I A01a00/SYS_UI: AppLifeCycleManager: StateChanged, state is not page com.huawei.hmos.filemanager_phone_FilePickerUIExtAbility_10111
+09-08 20:01:58.758 10111 10111 I A0f666/[FileMgr:-5.0.65.066]FilePicker: FilePickerUIExtAbility onCreate
+09-08 20:01:58.791  1312  1312 I A01a00/SYS_UI: AppLifeCycleManager: Ability state is not page com.huawei.hmos.filemanager_phone_FilePickerUIExtAbility_10111
+09-08 20:01:58.858 10111 10111 I A0f666/[FileMgr:-5.0.65.066]FilePicker: FilePickerUIExtAbility onSessionCreate, want:  <private>
+09-08 20:01:58.925 10111 10111 I A0f666/[FileMgr:-5.0.65.066]FilePicker: FilePickerUIExtAbility filter types[".TXT",".MD",".PDF",".DOCX",".PPTX"]
+09-08 20:01:58.979 10111 10111 I A0f666/[FileMgr:-5.0.65.066]FilePicker: initSessionFilePicker start
+09-08 20:01:59.000  1312  1312 I A01a00/SYS_UI: AppLifeCycleManager: StateChanged, state is not page com.huawei.hmos.filemanager_phone_FilePickerUIExtAbility_10111
+09-08 20:02:33.295 10111 13188 W C01719/ffrt: 32:RecordSymbolAndBacktrace:397 Process:com.huawei.hmos.filemanager:sysPicker/filePicker,Tid:12518,Qos:3,CWorker:3,EWorker:3,SWorker:0,TaskType:0,timeout:30s
+09-08 20:02:35.335 10111 13188 W C01719/ffrt: 34:RecordSymbolAndBacktrace:397 Process:com.huawei.hmos.filemanager:sysPicker/filePicker,Tid:12611,Qos:3,CWorker:3,EWorker:3,SWorker:0,TaskType:0,timeout:30s
+09-08 20:02:35.340 10111 13188 W C01719/ffrt: 36:RecordSymbolAndBacktrace:397 Process:com.huawei.hmos.filemanager:sysPicker/filePicker,Tid:12459,Qos:3,CWorker:3,EWorker:3,SWorker:0,TaskType:0,timeout:30s
+
+Direct system picker control:
+09-08 19:59:21.655   779 10053 I C01336/AMS: [ABR1457]TerminateAbility:FilePickerAbility
+09-08 19:59:21.657  1312  1312 I A01a00/SYS_UI: AppLifeCycleManager: Ability state changed, uid: 0, key: com.huawei.hmos.filemanager_phone_FilePickerAbility_38, isForeground: false, state 5
+09-08 19:59:21.671  1312  1312 I A01b0a/GESTURE: GestureDockPreferenceUtil: onSceneStateChange,isForegroud:false,bundleName:com.huawei.hmos.filemanager,appIndex:0 sceneInfo.abilityName:FilePickerAbility
+09-08 19:59:21.671  1312  1312 I A01b09/RECENT: RecentGestureEventManager: onSceneStateChange,isForegroud:false,bundleName:com.huawei.hmos.filemanager abilityName:FilePickerAbility
+09-08 19:59:21.674  1312  1312 I A01a00/SYS_UI: PhoneAppManager: ability[com.huawei.hmos.filemanager|undefined|FilePickerAbility] state change to 5
+09-08 19:59:21.674  1312  1312 I A01a00/SYS_UI: AppLifeCycleManager: Ability state trtminated, uid: 20020021, key: com.huawei.hmos.filemanager_phone_FilePickerAbility_3973
+09-08 19:59:26.598  9307  9307 I C04200/JsWindowStage: Window [37, knowflow_ai0] load content end, ret=0
+09-08 19:59:26.742  1312  6565 I C04202/WMSMain: NotifyCompleteFirstFrameDrawing:  id: 37, app info: [com.knowflow.knowflow_ai entry EntryAbility]
+09-08 20:06:14.275 16843 16843 I C04200/JsWindowStage: Window [39, knowflow_ai0] load content end, ret=0
+09-08 20:06:14.374  1312  1800 I C04202/WMSMain: NotifyCompleteFirstFrameDrawing:  id: 39, app info: [com.knowflow.knowflow_ai entry EntryAbility]
+09-08 20:12:45.692 23578 23578 I C04200/JsWindowStage: Window [40, knowflow_ai0] load content end, ret=0
+09-08 20:12:45.877  1312 18599 I C04202/WMSMain: NotifyCompleteFirstFrameDrawing:  id: 40, app info: [com.knowflow.knowflow_ai entry EntryAbility]
+
+FileManager freeze report:
+Reason:LIFECYCLE_TIMEOUT
+sysfreeze: filePicker LIFECYCLE_TIMEOUT at 20260908194245
+STRINGID:LIFECYCLE_TIMEOUT
+PACKAGE_NAME:com.huawei.hmos.filemanager
+PROCESS_NAME:com.huawei.hmos.filemanager:sysPicker/filePicker
+PACKAGE_NAME = com.huawei.hmos.filemanager
+PROCESS_NAME = com.huawei.hmos.filemanager:sysPicker/filePicker
+ability:FilePickerUIExtAbility load timeout
+EVENTNAME = LIFECYCLE_TIMEOUT
+PACKAGE_NAME = com.huawei.hmos.filemanager
+PROCESS_NAME = com.huawei.hmos.filemanager:sysPicker/filePicker
+ability:FilePickerUIExtAbility load timeout
+09-08 19:42:43.163 18627 18627 I C03f00/ArkCompiler: [gc]  [ HPP YoungGC ] 9.08641 (11.25) -> 8.9275 (11) MB, 458.241(+379.185)ms, GCReason: ConcurrentMark finished, MarkReason: Memory reach limit
+09-08 19:42:44.199 18627 26101 I C01310/AppDfr: [appfreeze_inner351]stop to sample freeze stack, eventName:LIFECYCLE_TIMEOUT freezeFile: foreGround:1 enbleMainThreadSample:0.
+09-08 19:42:44.199 18627 26101 W C01310/AppDfr: [appfreeze_inner373]submit reportAppFreeze, name:LIFECYCLE_TIMEOUT, startTime:2026-09-08 19:42:44.199
+09-08 19:42:44.208 18627 26140 W C01310/AppDfr: [appfreeze_inner418]get mainhandler dump, eventName:LIFECYCLE_TIMEOUT, endTime:2026-09-08 19:42:44.208, interval:1 ms
+09-08 19:42:44.265 18627 26140 W C01310/AppDfr: [appfreeze_inner511]NotifyAppFault:LIFECYCLE_TIMEOUT, pid:18627, bundleName:com.huawei.hmos.filemanager currentTime:2026-09-08 19:42:44.265, processExit:1 appfreezeInfo: enbleMainThreadSample:0.

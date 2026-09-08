@@ -1,0 +1,17 @@
+{
+  "result": [
+    {
+      "id": "d3c5209f-7a5c-4372-815e-c71cf6cee0c1",
+      "version": 51,
+      "score": 1.0,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "692bfb9c-5212-4246-a11e-960108cd1911",
+        "document_id": "9e06076e-7a4e-45ca-acaf-75e59d95d0eb",
+        "chunk_id": "d3c5209f-7a5c-4372-815e-c71cf6cee0c1"
+      }
+    }
+  ],
+  "status": "ok",
+  "time": 0.009615715
+}

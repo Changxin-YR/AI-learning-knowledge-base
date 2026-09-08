@@ -1,0 +1,1 @@
+Fallback path covered by qdrant_available exception handling.

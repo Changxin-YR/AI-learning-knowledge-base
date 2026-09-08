@@ -1,0 +1,118 @@
+{
+  "user_a": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+  "user_b": "0632d1a2-e1b7-47e8-920c-5e9577dbd514",
+  "query_point_user_b": "0632d1a2-e1b7-47e8-920c-5e9577dbd514",
+  "results": [
+    {
+      "id": "e9b42d54-15cc-4367-b9d2-05277215812f",
+      "version": 29,
+      "score": 1.0,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "3bdd94aa-af11-452b-99e4-af9585991106",
+        "document_id": "a2a99c43-8edd-4489-b5d4-dbff08992159",
+        "chunk_id": "e9b42d54-15cc-4367-b9d2-05277215812f"
+      }
+    },
+    {
+      "id": "3b57eec8-870b-46ee-946b-90542312b932",
+      "version": 28,
+      "score": 0.75,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "3bdd94aa-af11-452b-99e4-af9585991106",
+        "document_id": "b750f458-b9a4-45c0-95a6-f367e8786f71",
+        "chunk_id": "3b57eec8-870b-46ee-946b-90542312b932"
+      }
+    },
+    {
+      "id": "d3c5209f-7a5c-4372-815e-c71cf6cee0c1",
+      "version": 51,
+      "score": 0.75,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "692bfb9c-5212-4246-a11e-960108cd1911",
+        "document_id": "9e06076e-7a4e-45ca-acaf-75e59d95d0eb",
+        "chunk_id": "d3c5209f-7a5c-4372-815e-c71cf6cee0c1"
+      }
+    },
+    {
+      "id": "69013fae-2778-4e4f-a0a6-1a1712dec7a4",
+      "version": 34,
+      "score": 0.75,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "76a434cd-bf53-4226-b997-042b5c0fcafd",
+        "document_id": "b3dbb189-d409-4cbf-a7de-1b7fb96c08e6",
+        "chunk_id": "69013fae-2778-4e4f-a0a6-1a1712dec7a4"
+      }
+    },
+    {
+      "id": "eccf27a0-2dcf-4570-a6e6-bf2be20a8427",
+      "version": 27,
+      "score": 0.75,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "3bdd94aa-af11-452b-99e4-af9585991106",
+        "document_id": "505359a4-35a0-422d-8883-9a7df2849e6c",
+        "chunk_id": "eccf27a0-2dcf-4570-a6e6-bf2be20a8427"
+      }
+    },
+    {
+      "id": "29f5270e-856d-4a96-87a2-97a56bd50e3e",
+      "version": 7,
+      "score": 0.26726124,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "2d6b3056-ddfb-4855-a592-1ba2baeea9ce",
+        "document_id": "e298b185-44cf-48d9-8741-5927e3a66041",
+        "chunk_id": "29f5270e-856d-4a96-87a2-97a56bd50e3e"
+      }
+    },
+    {
+      "id": "b9e77dd0-7770-4c57-80b2-4efbe04736d6",
+      "version": 8,
+      "score": 0.26726124,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "9485c1f3-c3ef-4597-8b7b-e0146fc9c59d",
+        "document_id": "9c2f9e05-53ec-45b4-bb56-27c967b60b69",
+        "chunk_id": "b9e77dd0-7770-4c57-80b2-4efbe04736d6"
+      }
+    },
+    {
+      "id": "04a9f387-87f9-4eae-bd32-02e817e1b35f",
+      "version": 31,
+      "score": 0.21358941,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "3bdd94aa-af11-452b-99e4-af9585991106",
+        "document_id": "10c9dc14-02db-4de4-b965-a4f33b6b0bb7",
+        "chunk_id": "04a9f387-87f9-4eae-bd32-02e817e1b35f"
+      }
+    },
+    {
+      "id": "13b13c3f-0795-4d21-8fe3-2c210b4d4bca",
+      "version": 30,
+      "score": 0.1432774,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "3bdd94aa-af11-452b-99e4-af9585991106",
+        "document_id": "3c28d9b3-caf1-4148-a40a-2fe483cbd8ee",
+        "chunk_id": "13b13c3f-0795-4d21-8fe3-2c210b4d4bca"
+      }
+    },
+    {
+      "id": "47daa0f5-f472-48a6-b348-ef1930fa47bc",
+      "version": 30,
+      "score": 0.1329354,
+      "payload": {
+        "user_id": "b3e5162f-40c6-4fc7-b17c-7496b1599641",
+        "knowledge_base_id": "3bdd94aa-af11-452b-99e4-af9585991106",
+        "document_id": "3c28d9b3-caf1-4148-a40a-2fe483cbd8ee",
+        "chunk_id": "47daa0f5-f472-48a6-b348-ef1930fa47bc"
+      }
+    }
+  ],
+  "user_b_point_returned": false
+}

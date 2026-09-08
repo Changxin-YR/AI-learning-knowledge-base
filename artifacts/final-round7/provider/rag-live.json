@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "run_id": "9e768074-218b-44f1-8c97-2689e7ace7a9",
+  "content": "命中结果：\n\n- **文件名**：`round7.txt`\n- **唯一标识（document_id）**：`211afebf-47de-4d70-8ccd-1d14bd685d17`\n\n（命中 chunk_id：`584bb18a-fb85-4949-9df1-9dc17c67eda1`，第 1 节，内容与 HarmonyOS 兼容性选择器验收相关。）",
+  "tool_calls": [
+    {
+      "name": "search_knowledge",
+      "status": "completed",
+      "citations": [
+        {
+          "filename": "round7.txt",
+          "document_id": "211afebf-47de-4d70-8ccd-1d14bd685d17",
+          "chunk_id": "584bb18a-fb85-4949-9df1-9dc17c67eda1",
+          "preview": "KNOWFLOW_ROUND7_TXT`nHarmonyOS compatibility picker acceptance."
+        }
+      ]
+    }
+  ]
+}

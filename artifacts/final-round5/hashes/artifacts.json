@@ -1,0 +1,23 @@
+[
+  {
+    "path": "artifacts\\final-round5\\android\\knowflow-ai-round5.apk",
+    "size": 21323465,
+    "sha256": "76E97825B5303A89391B0CDF99562D619D32C27BE1B03F3F133317B568542DB3",
+    "lastWriteTime": "2026-09-08T11:21:52.0579485+08:00",
+    "commit": "b1b431690378cc27797e34b5ba61e6b5e7190bbf"
+  },
+  {
+    "path": "artifacts\\final-round5\\ohos\\knowflow-ai-round5-x64.hap",
+    "size": 20618183,
+    "sha256": "B4BFD7FB38DB185F474DDBF65A0CCBDD867355984C83EFC9AD1D60039071E5A3",
+    "lastWriteTime": "2026-09-08T11:19:14.6517451+08:00",
+    "commit": "b1b431690378cc27797e34b5ba61e6b5e7190bbf"
+  },
+  {
+    "path": "artifacts\\final-round5\\ohos\\knowflow-ai-round5-arm64.hap",
+    "size": 19391897,
+    "sha256": "FF4C9FCB9F3D5999391E904F8003EC1E921D6B1CAF24DA2BBCD9340C91DDC2DD",
+    "lastWriteTime": "2026-09-08T11:20:20.6696895+08:00",
+    "commit": "b1b431690378cc27797e34b5ba61e6b5e7190bbf"
+  }
+]

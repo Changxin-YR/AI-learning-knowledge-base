@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "run_id": "31a9d245-dc29-4302-94a6-109c346bac7a",
+  "content": "已成功保存记忆 ✅\n\n- **memory_type**: preference\n- **content**: 最近重点学习 RAG（检索增强生成）\n- **importance**: 0.9\n- **source**: round7-live\n- **ID**: `cf09e929-8924-4bd0-85f4-7f863a104495`\n\n记忆已持久化。如果需要，我可以基于这条偏好为你生成 RAG 学习计划或测验，随时告诉我！",
+  "tool_calls": [
+    {
+      "name": "save_memory",
+      "status": "completed"
+    }
+  ]
+}
+{
+  "success": true,
+  "run_id": "d91eddbc-c73e-4295-afc2-a7c22b8b8f6a",
+  "content": "根据工具查询结果，有一条记忆显示：\n\n- **内容**：最近重点学习 RAG（检索增强生成）\n- **类型**：偏好（preference）\n- **重要度**：0.9（较高）\n- **来源**：round7-live\n- **记录时间**：2026-09-08\n\n因此，您最近重点学习的内容是 **RAG（检索增强生成）**。",
+  "tool_calls": [
+    {
+      "name": "search_memory",
+      "status": "completed"
+    }
+  ]
+}

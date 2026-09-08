@@ -1,0 +1,47 @@
+{
+  "auth": "PASS",
+  "kb_a": "76a434cd-bf53-4226-b997-042b5c0fcafd",
+  "upload_a": {
+    "id": "b3dbb189-d409-4cbf-a7de-1b7fb96c08e6",
+    "filename": "round5.txt",
+    "status": "indexed",
+    "chunk_count": 1,
+    "vector_indexed": true
+  },
+  "chat": {
+    "citation_count": 1,
+    "conversation_reused": true
+  },
+  "learning": {
+    "plan": "PASS",
+    "task_update": {
+      "id": "47452c39-aefa-44e5-a8a4-ca6730dd7b1a",
+      "completed": true
+    }
+  },
+  "quiz": {
+    "score": 100.0,
+    "mastery_score": 100.0,
+    "correct": true
+  },
+  "memory": {
+    "found": true,
+    "deleted": true
+  },
+  "agent": {
+    "tools": 12,
+    "run_status": "部分工具执行失败",
+    "calls": [
+      "completed",
+      "failed"
+    ]
+  },
+  "ready": {
+    "status": "ready",
+    "database": "sqlite",
+    "qdrant": true,
+    "rag_mode": "hybrid",
+    "embedding_provider": "local",
+    "demo_ai": true
+  }
+}

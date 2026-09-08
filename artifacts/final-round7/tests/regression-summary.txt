@@ -1,0 +1,9 @@
+KnowFlow Round 7 automated regression
+
+Backend: 20 passed
+Flutter analyze: No issues found!
+Flutter tests: 5 passed
+Build-all: Android APK PASS; HarmonyOS x86_64 HAP PASS
+Additional ARM64 build: PASS
+Qdrant /api/v1/ready: qdrant=true, rag_mode=hybrid
+HDC target: 127.0.0.1:5555

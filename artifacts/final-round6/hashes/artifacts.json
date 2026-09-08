@@ -1,0 +1,29 @@
+[
+  {
+    "path": "artifacts/final-round6/android/knowflow-ai-round6-release.apk",
+    "size": 21323938,
+    "sha256": "537DCB003D0063FC6F33675A5298E90B6343465D592B5355C9ECA2CC26BE93F6",
+    "signing": "Android test-release",
+    "built_at": "2026-09-08T20:39:10.5297355+08:00",
+    "source_commit": "9980834a76a068bfb25c19180f41e61453b411db",
+    "branch": "round6-ohos-emulator-final"
+  },
+  {
+    "path": "artifacts/final-round6/ohos/knowflow-ai-round6-x64.hap",
+    "size": 20618184,
+    "sha256": "B0E673235AAD9FCE129F142AADCCC8E280388A14A36F606E908C8733E188C861",
+    "signing": "HarmonyOS local/debug",
+    "built_at": "2026-09-08T20:40:23.0566106+08:00",
+    "source_commit": "9980834a76a068bfb25c19180f41e61453b411db",
+    "branch": "round6-ohos-emulator-final"
+  },
+  {
+    "path": "artifacts/final-round6/ohos/knowflow-ai-round6-arm64.hap",
+    "size": 19391904,
+    "sha256": "A5F14AEC52A1646650FACDC2A913238D2EB02D5B888846003AA89DE4758A3F5E",
+    "signing": "HarmonyOS local/debug",
+    "built_at": "2026-09-08T20:41:18.2932323+08:00",
+    "source_commit": "9980834a76a068bfb25c19180f41e61453b411db",
+    "branch": "round6-ohos-emulator-final"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-09-08T11:35:41.8638159+08:00",
+  "devEco": true,
+  "sdkApi24": true,
+  "phoneProfile": true,
+  "api22GuestConfig": true,
+  "api24GuestConfig": true,
+  "virtualization": true,
+  "freeMemoryMb": 739.6,
+  "hdcTargets": "COM3\t\tUART\tReady\tunknown...\thdc\nCOM4\t\tUART\tReady\tunknown...\thdc",
+  "api22LaunchAttempt": "FAIL: Trace pipe is not prepared; no qemu/boot/hdc target",
+  "api24LaunchAttempt": "FAIL: Trace pipe is not prepared; no qemu/boot/hdc target"
+}
