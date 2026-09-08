@@ -70,3 +70,6 @@
 ## 证据目录
 
 `artifacts/final-round3/` 下保留 environment、tests、android、ohos、rag-eval、screenshots、hashes；Round 1/2 旧证据未删除。
+## Round 4
+
+See [`ROUND4_ACCEPTANCE_REPORT.md`](ROUND4_ACCEPTANCE_REPORT.md). Qdrant live acceptance is PASS; Android and HarmonyOS runtime matrices are BLOCKED by unavailable local device tooling/targets.
