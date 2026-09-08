@@ -12,8 +12,8 @@ behavior was kept intact.
 
 ## 2. Round 7 Commit
 
-The final commit is the tip of `round7-final-pass`; the exact SHA is recorded
-by `git rev-parse HEAD` in the delivery output.
+Round 7 code, evidence, and fresh artifacts are committed in
+`1d8519e`. The final metadata-only follow-up commit is the branch tip.
 
 ## 3. HarmonyOS Picker Root Cause
 

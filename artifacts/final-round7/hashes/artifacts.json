@@ -1,6 +1,6 @@
 {
   "generated_at": "2026-09-08T22:51:59.0406148+08:00",
-  "source_commit": "5f70397e988c849373b0e1e233e5838e1a3f1556",
+  "source_commit": "1d8519e",
   "artifacts": [
     {
       "platform": "Android",
@@ -9,7 +9,7 @@
       "sha256": "B10A89A14A9E8A5C31E3509B07802F02677B7196BCEBFCCCF1E4BF249DBE10C9",
       "signing": "local test-release",
       "build_timestamp": "2026-09-08T22:39:59.9815108+08:00",
-      "source_commit": "5f70397e988c849373b0e1e233e5838e1a3f1556"
+      "source_commit": "1d8519e"
     },
     {
       "platform": "HarmonyOS x86_64",
@@ -18,7 +18,7 @@
       "sha256": "1FFBB9EA923448E64912E26B7C17D2CA216556BCFE265B8E05648ACF52CC8F28",
       "signing": "local/debug profile",
       "build_timestamp": "2026-09-08T22:41:43.2047941+08:00",
-      "source_commit": "5f70397e988c849373b0e1e233e5838e1a3f1556"
+      "source_commit": "1d8519e"
     },
     {
       "platform": "HarmonyOS ARM64",
@@ -27,7 +27,7 @@
       "sha256": "0D68F33A231B976BA1118C4813BD9EEBF90412EFAA536189F4A69DAD10A44354",
       "signing": "local/debug profile",
       "build_timestamp": "2026-09-08T22:43:20.9479681+08:00",
-      "source_commit": "5f70397e988c849373b0e1e233e5838e1a3f1556"
+      "source_commit": "1d8519e"
     }
   ]
 }
