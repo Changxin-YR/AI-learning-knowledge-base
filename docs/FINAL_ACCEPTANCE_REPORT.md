@@ -3,6 +3,7 @@
 The latest acceptance is documented in [ROUND5_ACCEPTANCE_REPORT.md](ROUND5_ACCEPTANCE_REPORT.md).
 
 Current branch: `round5-runtime-acceptance`
+Round 5 commit: `b1b431690378cc27797e34b5ba61e6b5e7190bbf`
 Round 4 baseline: `7e081a16813b8e01c0f71806854d49a71eb1c061`
 
 Current verdict: `CONDITIONAL PASS`.

@@ -3,6 +3,7 @@
 Date: 2026-09-08
 Baseline: `7e081a16813b8e01c0f71806854d49a71eb1c061`
 Branch: `round5-runtime-acceptance`
+Round 5 commit: `b1b431690378cc27797e34b5ba61e6b5e7190bbf`
 
 ## 1. Baseline
 
@@ -10,7 +11,7 @@ Round 5 starts from the submitted Round 4 commit above. No product feature or RA
 
 ## 2. Round 5 Commit
 
-This report and its evidence are prepared on `round5-runtime-acceptance`; the final commit is created after the verification commands in this report pass.
+This report and its evidence are included in the Round 5 commit above.
 
 ## 3. Environment
 
