@@ -1,4 +1,5 @@
 .env
+.env.*
 *.db
 __pycache__/
 .pytest_cache/
@@ -12,6 +13,12 @@ artifacts/**/*.log
 .tmp-provision-tool/
 .tmp-sdk-sign/
 .ohos-signing.local.json
+*.jks
+*.keystore
+key.properties
+*.p12
+*.pem
+*.key
 artifacts/ohos/*.json
 mobile/android/key.properties
 mobile/android/*.keystore
