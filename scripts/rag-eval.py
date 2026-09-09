@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.request import Request, urlopen
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -113,8 +114,97 @@ def metrics(queries: list[dict[str, Any]], rankings: list[list[str]]) -> dict[st
     }
 
 
+def rerank_scores(query: str, passages: list[str]) -> list[float]:
+    if not passages:
+        return []
+    endpoint = (os.getenv("RERANK_BASE_URL") or os.getenv("EMBEDDING_BASE_URL") or "").rstrip("/")
+    if not endpoint:
+        raise RuntimeError("RERANK_BASE_URL or EMBEDDING_BASE_URL must be configured for rerank evaluation")
+    if not endpoint.endswith("/rerank"):
+        endpoint += "/rerank"
+    api_key = os.getenv("RERANK_API_KEY") or os.getenv("EMBEDDING_API_KEY") or ""
+    model = os.getenv("RERANK_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
+    payload = json.dumps({"query": query, "documents": passages, "model": model}).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = Request(endpoint, data=payload, headers=headers, method="POST")
+    try:
+        with urlopen(request, timeout=120) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError("Configured reranker failed") from exc
+    ranked = sorted(data.get("data", []), key=lambda item: item.get("index", 0))
+    scores = [float(item["score"]) for item in ranked]
+    if len(scores) != len(passages):
+        raise RuntimeError("Reranker returned an unexpected number of scores")
+    return scores
+
+
+def rerank_scored_rankings(
+    queries: list[dict[str, Any]],
+    documents: list[dict[str, Any]],
+    candidate_rankings: list[list[str]],
+    candidate_limit: int,
+) -> list[list[tuple[str, float]]]:
+    by_id = {document["id"]: document for document in documents}
+    scored_rankings: list[list[tuple[str, float]]] = []
+    for case, candidate_ids in zip(queries, candidate_rankings):
+        ids = [item_id for item_id in candidate_ids[:candidate_limit] if item_id in by_id]
+        passages = [by_id[item_id]["text"] for item_id in ids]
+        scores = rerank_scores(case["query"], passages)
+        scored_rankings.append(
+            sorted(zip(ids, scores), key=lambda item: (-item[1], item[0]))
+        )
+    return scored_rankings
+
+
+def filter_scored_rankings(
+    scored_rankings: list[list[tuple[str, float]]],
+    threshold: float,
+) -> list[list[str]]:
+    return [
+        [item_id for item_id, score in ranking if score >= threshold]
+        for ranking in scored_rankings
+    ]
+
+
+def calibrate_rerank_threshold(
+    queries: list[dict[str, Any]],
+    scored_rankings: list[list[tuple[str, float]]],
+    min_recall: float,
+    min_citation: float,
+) -> tuple[float, dict[str, float | int], int]:
+    scores = sorted({score for ranking in scored_rankings for _item_id, score in ranking})
+    if not scores:
+        raise RuntimeError("Reranker produced no candidate scores")
+
+    candidates = [scores[0] - 1e-6, *scores]
+    viable: list[tuple[tuple[float, float, float, float, float], float, dict[str, float | int]]] = []
+    for threshold in candidates:
+        result = metrics(queries, filter_scored_rankings(scored_rankings, threshold))
+        if result["Recall@3"] < min_recall or result["Citation Hit Rate"] < min_citation:
+            continue
+        objective = (
+            float(result["No-answer false citation rate"]),
+            -float(result["MRR"]),
+            -float(result["Citation Hit Rate"]),
+            -float(result["Recall@3"]),
+            -threshold,
+        )
+        viable.append((objective, threshold, result))
+
+    if not viable:
+        fallback_threshold = scores[0] - 1e-6
+        fallback_metrics = metrics(queries, filter_scored_rankings(scored_rankings, fallback_threshold))
+        return fallback_threshold, fallback_metrics, len(candidates)
+
+    _objective, best_threshold, best_metrics = min(viable, key=lambda item: item[0])
+    return best_threshold, best_metrics, len(candidates)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate KnowFlow lexical, vector and hybrid retrieval.")
+    parser = argparse.ArgumentParser(description="Evaluate KnowFlow lexical, vector, hybrid and optional reranked retrieval.")
     parser.add_argument(
         "--dataset",
         type=Path,
@@ -142,6 +232,29 @@ def main() -> None:
         default=int(os.getenv("HYBRID_AGREEMENT_TOP_K", str(HYBRID_AGREEMENT_TOP_K))),
         help="Weak vector evidence must agree with lexical retrieval within this many top-ranked candidates.",
     )
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Call the configured /rerank endpoint for RRF candidates and report Cross-Encoder metrics.",
+    )
+    parser.add_argument(
+        "--rerank-threshold",
+        type=float,
+        default=float(os.getenv("RERANK_SCORE_THRESHOLD", "0.0")),
+        help="Cross-Encoder score required for a candidate to be emitted.",
+    )
+    parser.add_argument(
+        "--rerank-candidate-limit",
+        type=int,
+        default=int(os.getenv("RERANK_CANDIDATE_LIMIT", "8")),
+    )
+    parser.add_argument(
+        "--calibrate-rerank",
+        action="store_true",
+        help="Choose a rerank threshold from this dataset only. Never use this mode on the final holdout dataset.",
+    )
+    parser.add_argument("--min-rerank-recall", type=float, default=0.95)
+    parser.add_argument("--min-rerank-citation", type=float, default=0.90)
     args = parser.parse_args()
 
     dataset_path = resolve_cli_path(args.dataset)
@@ -168,7 +281,7 @@ def main() -> None:
         for lexical_rank, matches in zip(lexical, vector_matches)
     ]
 
-    report = {
+    report: dict[str, Any] = {
         "dataset": display_path(dataset_path),
         "case_count": len(queries),
         "document_count": len(documents),
@@ -183,6 +296,39 @@ def main() -> None:
         "HybridUngated": metrics(queries, hybrid_ungated),
         "Hybrid": metrics(queries, hybrid),
     }
+
+    if args.rerank or args.calibrate_rerank:
+        scored_rankings = rerank_scored_rankings(
+            queries,
+            documents,
+            hybrid_ungated,
+            max(1, args.rerank_candidate_limit),
+        )
+        selected_threshold = args.rerank_threshold
+        calibration: dict[str, Any] | None = None
+        if args.calibrate_rerank:
+            selected_threshold, selected_metrics, threshold_count = calibrate_rerank_threshold(
+                queries,
+                scored_rankings,
+                args.min_rerank_recall,
+                args.min_rerank_citation,
+            )
+            calibration = {
+                "selected_threshold": selected_threshold,
+                "evaluated_thresholds": threshold_count,
+                "minimum_recall_at_3": args.min_rerank_recall,
+                "minimum_citation_hit_rate": args.min_rerank_citation,
+                "selected_metrics": selected_metrics,
+            }
+        reranked = filter_scored_rankings(scored_rankings, selected_threshold)
+        report["reranker"] = {
+            "model": os.getenv("RERANK_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"),
+            "candidate_limit": max(1, args.rerank_candidate_limit),
+            "score_threshold": selected_threshold,
+            "calibration": calibration,
+        }
+        report["HybridReranked"] = metrics(queries, reranked)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
