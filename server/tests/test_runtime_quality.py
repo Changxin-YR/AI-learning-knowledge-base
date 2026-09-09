@@ -95,6 +95,7 @@ def test_runtime_embedding_provider_uses_configurable_cold_start_timeout(monkeyp
     monkeypatch.setenv("EMBEDDING_MODEL", "mini")
     monkeypatch.setenv("EMBEDDING_DIMENSIONS", "384")
     monkeypatch.setenv("EMBEDDING_TIMEOUT_SECONDS", "77")
+    monkeypatch.setenv("EMBEDDING_RETRY_COUNT", "0")
     monkeypatch.setattr(runtime, "urlopen", fake_urlopen)
 
     provider = runtime.RuntimeOpenAIEmbeddingProvider()
@@ -106,6 +107,33 @@ def test_runtime_embedding_provider_uses_configurable_cold_start_timeout(monkeyp
     assert provider.dimensions == 384
 
 
+def test_runtime_embedding_provider_retries_transient_failure(monkeypatch, caplog):
+    attempts = {"count": 0}
+
+    def fake_urlopen(_request, _timeout):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise TimeoutError("cold start")
+        return _FakeResponse({"data": [{"index": 0, "embedding": [0.2] * 384}]})
+
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "http://127.0.0.1:8002")
+    monkeypatch.setenv("EMBEDDING_MODEL", "mini")
+    monkeypatch.setenv("EMBEDDING_DIMENSIONS", "384")
+    monkeypatch.setenv("EMBEDDING_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("EMBEDDING_RETRY_COUNT", "1")
+    monkeypatch.setenv("EMBEDDING_RETRY_BACKOFF_SECONDS", "0")
+    monkeypatch.setattr(runtime, "urlopen", fake_urlopen)
+    caplog.set_level("WARNING", logger="knowflow.rag")
+
+    provider = runtime.RuntimeOpenAIEmbeddingProvider()
+    vectors = provider.embed_documents(["private document text"])
+
+    assert attempts["count"] == 2
+    assert len(vectors[0]) == 384
+    assert "attempt=1/2" in caplog.text
+    assert "private document text" not in caplog.text
+
+
 def test_runtime_qdrant_request_uses_configurable_timeout(monkeypatch):
     seen: dict[str, object] = {}
 
@@ -115,6 +143,7 @@ def test_runtime_qdrant_request_uses_configurable_timeout(monkeypatch):
         return _FakeResponse({"status": "ok"})
 
     monkeypatch.setenv("QDRANT_TIMEOUT_SECONDS", "19")
+    monkeypatch.setenv("QDRANT_RETRY_COUNT", "0")
     monkeypatch.setattr(runtime, "urlopen", fake_urlopen)
 
     result = runtime._runtime_qdrant_request("GET", "/collections")
@@ -122,6 +151,28 @@ def test_runtime_qdrant_request_uses_configurable_timeout(monkeypatch):
     assert result == {"status": "ok"}
     assert seen["timeout"] == 19
     assert seen["url"].endswith("/collections")
+
+
+def test_runtime_qdrant_request_retries_transient_failure(monkeypatch, caplog):
+    attempts = {"count": 0}
+
+    def fake_urlopen(_request, _timeout):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise TimeoutError("temporary qdrant stall")
+        return _FakeResponse({"status": "ok"})
+
+    monkeypatch.setenv("QDRANT_TIMEOUT_SECONDS", "10")
+    monkeypatch.setenv("QDRANT_RETRY_COUNT", "1")
+    monkeypatch.setenv("QDRANT_RETRY_BACKOFF_SECONDS", "0")
+    monkeypatch.setattr(runtime, "urlopen", fake_urlopen)
+    caplog.set_level("WARNING", logger="knowflow.rag")
+
+    result = runtime._runtime_qdrant_request("GET", "/collections")
+
+    assert result == {"status": "ok"}
+    assert attempts["count"] == 2
+    assert "attempt=1/2" in caplog.text
 
 
 def test_runtime_index_chunks_logs_embedding_stage_without_content(monkeypatch, caplog):
@@ -154,3 +205,17 @@ def test_runtime_qdrant_upsert_logs_metadata_on_failure(monkeypatch, caplog):
     assert "dimensions=384" in caplog.text
     assert "point_count=1" in caplog.text
     assert "0.1" not in caplog.text
+
+
+def test_runtime_quality_status_exposes_transport_hardening(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_TIMEOUT_SECONDS", "121")
+    monkeypatch.setenv("EMBEDDING_RETRY_COUNT", "2")
+    monkeypatch.setenv("QDRANT_TIMEOUT_SECONDS", "11")
+    monkeypatch.setenv("QDRANT_RETRY_COUNT", "3")
+
+    status = runtime.runtime_quality_status()
+
+    assert status["embedding_timeout_seconds"] == 121
+    assert status["embedding_retry_count"] == 2
+    assert status["qdrant_timeout_seconds"] == 11
+    assert status["qdrant_retry_count"] == 3
