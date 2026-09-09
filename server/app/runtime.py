@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 from urllib.request import Request, urlopen
@@ -9,9 +10,12 @@ from app import main as core
 from app.evidence_verifier import EvidenceVerificationError, OpenAICompatibleEvidenceVerifier
 
 
-# Keep the original implementation available so the default/basic mode remains
-# backward compatible and deterministic CI does not require neural/cloud services.
+logger = logging.getLogger("knowflow.rag")
+
+# Keep the original implementations available so basic mode and deterministic CI
+# remain backward compatible while runtime mode can add production diagnostics.
 _core_retrieve = core.retrieve
+_core_embedding_provider = core.embedding_provider
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -48,6 +52,157 @@ def _candidate_limit(final_limit: int) -> int:
         _positive_int("RERANK_CANDIDATE_LIMIT", 8),
         _positive_int("ANSWERABILITY_CANDIDATE_LIMIT", 4),
     )
+
+
+class RuntimeOpenAIEmbeddingProvider(core.EmbeddingProvider):
+    """OpenAI-compatible embedding provider with configurable cold-start timeout.
+
+    The local multilingual MiniLM service can take longer than 20 seconds to load
+    on the first request. Runtime mode therefore uses an explicit configurable
+    timeout and emits metadata-only diagnostics on failure. No API key, input text,
+    or vector values are logged.
+    """
+
+    def __init__(self):
+        self.endpoint = os.getenv("EMBEDDING_BASE_URL", "").rstrip("/")
+        self.api_key = os.getenv("EMBEDDING_API_KEY", "")
+        self.model = os.getenv("EMBEDDING_MODEL", "")
+        self.dimensions = int(os.getenv("EMBEDDING_DIMENSIONS", str(core.EMBEDDING_DIMENSIONS)))
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        endpoint = self.endpoint
+        if not endpoint:
+            raise RuntimeError("EMBEDDING_BASE_URL is required for openai embedding mode")
+        if not endpoint.endswith("/embeddings"):
+            endpoint += "/embeddings"
+        payload = json.dumps({"model": self.model, "input": texts}, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        request = Request(endpoint, data=payload, headers=headers, method="POST")
+        timeout = _positive_int("EMBEDDING_TIMEOUT_SECONDS", 120)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            vectors = [item["embedding"] for item in sorted(data["data"], key=lambda item: item.get("index", 0))]
+            if not vectors or len(vectors) != len(texts) or any(len(vector) != len(vectors[0]) for vector in vectors):
+                raise ValueError("Embedding provider returned invalid vectors")
+            self.dimensions = len(vectors[0])
+            return vectors
+        except Exception as exc:
+            logger.warning(
+                "embedding request failed provider=openai model=%s timeout_seconds=%s batch_size=%s error_type=%s",
+                self.model or "<unset>",
+                timeout,
+                len(texts),
+                type(exc).__name__,
+            )
+            raise RuntimeError("Configured embedding provider failed") from exc
+
+
+def runtime_embedding_provider() -> core.EmbeddingProvider:
+    provider = os.getenv("EMBEDDING_PROVIDER", "local").lower()
+    if provider == "openai":
+        return RuntimeOpenAIEmbeddingProvider()
+    if provider == "auto" and os.getenv("EMBEDDING_BASE_URL") and os.getenv("EMBEDDING_MODEL"):
+        return RuntimeOpenAIEmbeddingProvider()
+    return _core_embedding_provider()
+
+
+def _runtime_qdrant_request(method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(
+        f"{core.QDRANT_URL}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method=method,
+    )
+    timeout = _positive_int("QDRANT_TIMEOUT_SECONDS", 10)
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            body = response.read()
+        return json.loads(body.decode("utf-8")) if body else {}
+    except Exception as exc:
+        logger.warning(
+            "qdrant request failed method=%s path=%s collection=%s timeout_seconds=%s error_type=%s",
+            method,
+            path,
+            core.QDRANT_COLLECTION,
+            timeout,
+            type(exc).__name__,
+        )
+        raise
+
+
+def runtime_qdrant_upsert(points: list[dict[str, Any]], dimensions: int) -> bool:
+    if not points:
+        return True
+    try:
+        core.ensure_qdrant_collection(dimensions)
+        core._qdrant_request(
+            "PUT",
+            f"/collections/{core.QDRANT_COLLECTION}/points?wait=true",
+            {"points": points},
+        )
+        return True
+    except Exception as exc:
+        logger.error(
+            "vector indexing failed stage=qdrant collection=%s dimensions=%s point_count=%s error_type=%s",
+            core.QDRANT_COLLECTION,
+            dimensions,
+            len(points),
+            type(exc).__name__,
+        )
+        return False
+
+
+def runtime_index_chunks(
+    user_id: str,
+    kb_id: str,
+    document_id: str,
+    chunks: list[tuple[str, str, int, str]] | list[tuple[str, str, int]],
+) -> bool:
+    if not chunks:
+        return True
+    try:
+        provider = core.embedding_provider()
+        vectors = provider.embed_documents([chunk for _chunk_id, chunk, _position, *_ in chunks])
+    except Exception as exc:
+        logger.error(
+            "vector indexing failed stage=embedding document_id=%s chunk_count=%s provider=%s error_type=%s",
+            document_id,
+            len(chunks),
+            os.getenv("EMBEDDING_PROVIDER", "local"),
+            type(exc).__name__,
+        )
+        return False
+
+    points: list[dict[str, Any]] = []
+    for chunk_record, vector in zip(chunks, vectors):
+        chunk_id, _chunk, _position, *chunk_document = chunk_record
+        points.append(
+            {
+                "id": chunk_id,
+                "vector": vector,
+                "payload": {
+                    "user_id": user_id,
+                    "knowledge_base_id": kb_id,
+                    "document_id": chunk_document[0] if chunk_document else document_id,
+                    "chunk_id": chunk_id,
+                },
+            }
+        )
+
+    success = core.qdrant_upsert(points, provider.dimensions)
+    if not success:
+        logger.error(
+            "vector indexing incomplete document_id=%s chunk_count=%s dimensions=%s collection=%s",
+            document_id,
+            len(chunks),
+            provider.dimensions,
+            core.QDRANT_COLLECTION,
+        )
+    return success
 
 
 def _rerank_rows(query: str, rows: list[Any]) -> list[Any]:
@@ -166,10 +321,19 @@ def retrieve(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> lis
     return rows[:limit]
 
 
+# Runtime hardening is installed before serving routes. Functions defined in
+# app.main resolve these module globals at call time, so upload/document indexing,
+# vector retrieval, deletion and availability checks use the hardened transport.
+core.embedding_provider = runtime_embedding_provider
+core._qdrant_request = _runtime_qdrant_request
+core.qdrant_upsert = runtime_qdrant_upsert
+core.index_chunks = runtime_index_chunks
+
 # Routes and Agent tools defined in app.main resolve the module-global `retrieve`
 # at call time, so replacing it here upgrades chat, streaming chat, quiz source
 # retrieval and the `search_knowledge` Agent tool without duplicating routes.
 core.retrieve = retrieve
+core.app.version = os.getenv("APP_VERSION", "1.1.0")
 app = core.app
 
 
@@ -181,4 +345,7 @@ def runtime_quality_status() -> dict[str, Any]:
         "answerability_configured": answerability_configured(),
         "vector_threshold": float(os.getenv("VECTOR_SCORE_THRESHOLD", str(core.VECTOR_SCORE_THRESHOLD))),
         "embedding_provider": os.getenv("EMBEDDING_PROVIDER", "local"),
+        "embedding_timeout_seconds": _positive_int("EMBEDDING_TIMEOUT_SECONDS", 120),
+        "qdrant_timeout_seconds": _positive_int("QDRANT_TIMEOUT_SECONDS", 10),
+        "app_version": core.app.version,
     }
