@@ -72,6 +72,37 @@ def test_openai_compatible_verifier_returns_only_explicit_supported_indices(monk
     assert captured["timeout"] == 7
     assert captured["body"]["temperature"] == 0
     assert captured["body"]["max_tokens"] == 32
+    assert "thinking" not in captured["body"]
+
+
+def test_deepseek_env_defaults_to_thinking_disabled(monkeypatch):
+    monkeypatch.setenv("ANSWERABILITY_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("ANSWERABILITY_API_KEY", "secret")
+    monkeypatch.setenv("ANSWERABILITY_MODEL", "deepseek-v4-flash")
+    monkeypatch.delenv("ANSWERABILITY_DISABLE_THINKING", raising=False)
+
+    verifier = OpenAICompatibleEvidenceVerifier.from_env()
+
+    assert verifier.disable_thinking is True
+
+
+def test_verifier_sends_deepseek_thinking_disabled_when_configured(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse({"choices": [{"message": {"content": "SUPPORTED: NONE"}}]})
+
+    monkeypatch.setattr(verifier_module, "urlopen", fake_urlopen)
+    verifier = OpenAICompatibleEvidenceVerifier(
+        base_url="https://api.deepseek.com",
+        api_key="secret",
+        model="deepseek-v4-flash",
+        disable_thinking=True,
+    )
+
+    assert verifier.verify("Question", ["Evidence"]) == []
+    assert captured["body"]["thinking"] == {"type": "disabled"}
 
 
 def test_verifier_treats_provider_format_drift_as_failure(monkeypatch):
