@@ -10,9 +10,11 @@ from app.evidence_verifier import (
 )
 
 
-def test_parse_supported_indices_accepts_none_and_deduplicates():
+def test_parse_supported_indices_accepts_legacy_and_json_outputs():
     assert parse_supported_indices("SUPPORTED: NONE", 3) == []
     assert parse_supported_indices("SUPPORTED: 0, 2, 0", 3) == [0, 2]
+    assert parse_supported_indices('{"supported": []}', 3) == []
+    assert parse_supported_indices('{"supported": [0, 2, 0]}', 3) == [0, 2]
 
 
 def test_parse_supported_indices_rejects_malformed_or_out_of_range_output():
@@ -20,6 +22,12 @@ def test_parse_supported_indices_rejects_malformed_or_out_of_range_output():
         parse_supported_indices("The answer is evidence 0", 2)
     with pytest.raises(EvidenceVerificationError):
         parse_supported_indices("SUPPORTED: 2", 2)
+    with pytest.raises(EvidenceVerificationError):
+        parse_supported_indices('{"supported": [2]}', 2)
+    with pytest.raises(EvidenceVerificationError):
+        parse_supported_indices('{"supported": [0], "reason": "extra"}', 2)
+    with pytest.raises(EvidenceVerificationError):
+        parse_supported_indices('{"supported": [true]}', 2)
 
 
 class FakeResponse:
@@ -71,27 +79,30 @@ def test_openai_compatible_verifier_returns_only_explicit_supported_indices(monk
     assert captured["url"].endswith("/chat/completions")
     assert captured["timeout"] == 7
     assert captured["body"]["temperature"] == 0
-    assert captured["body"]["max_tokens"] == 32
+    assert captured["body"]["max_tokens"] == 64
     assert "thinking" not in captured["body"]
+    assert "response_format" not in captured["body"]
 
 
-def test_deepseek_env_defaults_to_thinking_disabled(monkeypatch):
+def test_deepseek_env_defaults_to_non_thinking_json_output(monkeypatch):
     monkeypatch.setenv("ANSWERABILITY_BASE_URL", "https://api.deepseek.com")
     monkeypatch.setenv("ANSWERABILITY_API_KEY", "secret")
     monkeypatch.setenv("ANSWERABILITY_MODEL", "deepseek-v4-flash")
     monkeypatch.delenv("ANSWERABILITY_DISABLE_THINKING", raising=False)
+    monkeypatch.delenv("ANSWERABILITY_JSON_OUTPUT", raising=False)
 
     verifier = OpenAICompatibleEvidenceVerifier.from_env()
 
     assert verifier.disable_thinking is True
+    assert verifier.json_output is True
 
 
-def test_verifier_sends_deepseek_thinking_disabled_when_configured(monkeypatch):
+def test_verifier_sends_deepseek_json_and_thinking_disabled(monkeypatch):
     captured = {}
 
     def fake_urlopen(request, timeout):
         captured["body"] = json.loads(request.data.decode("utf-8"))
-        return FakeResponse({"choices": [{"message": {"content": "SUPPORTED: NONE"}}]})
+        return FakeResponse({"choices": [{"message": {"content": '{"supported": []}'}}]})
 
     monkeypatch.setattr(verifier_module, "urlopen", fake_urlopen)
     verifier = OpenAICompatibleEvidenceVerifier(
@@ -99,10 +110,13 @@ def test_verifier_sends_deepseek_thinking_disabled_when_configured(monkeypatch):
         api_key="secret",
         model="deepseek-v4-flash",
         disable_thinking=True,
+        json_output=True,
     )
 
     assert verifier.verify("Question", ["Evidence"]) == []
     assert captured["body"]["thinking"] == {"type": "disabled"}
+    assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert "JSON" in captured["body"]["messages"][0]["content"]
 
 
 def test_verifier_treats_provider_format_drift_as_failure(monkeypatch):
