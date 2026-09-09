@@ -110,7 +110,8 @@ def test_runtime_embedding_provider_uses_configurable_cold_start_timeout(monkeyp
 def test_runtime_embedding_provider_retries_transient_failure(monkeypatch, caplog):
     attempts = {"count": 0}
 
-    def fake_urlopen(_request, _timeout):
+    def fake_urlopen(_request, timeout=None):
+        assert timeout == 120
         attempts["count"] += 1
         if attempts["count"] == 1:
             raise TimeoutError("cold start")
@@ -156,7 +157,8 @@ def test_runtime_qdrant_request_uses_configurable_timeout(monkeypatch):
 def test_runtime_qdrant_request_retries_transient_failure(monkeypatch, caplog):
     attempts = {"count": 0}
 
-    def fake_urlopen(_request, _timeout):
+    def fake_urlopen(_request, timeout=None):
+        assert timeout == 10
         attempts["count"] += 1
         if attempts["count"] == 1:
             raise TimeoutError("temporary qdrant stall")
