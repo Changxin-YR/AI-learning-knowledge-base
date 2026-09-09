@@ -15,6 +15,7 @@ All notable changes to KnowFlow AI are documented here.
 - `/api/v1/runtime-quality` runtime diagnostics.
 - Independent calibration, diagnostic holdouts, and untouched final Holdout V3 evaluation.
 - Configurable `EMBEDDING_TIMEOUT_SECONDS` and `QDRANT_TIMEOUT_SECONDS` for neural cold starts and vector-store operations.
+- Configurable transient retry controls for Embedding and Qdrant (`*_RETRY_COUNT`, `*_RETRY_BACKOFF_SECONDS`).
 - Metadata-only indexing diagnostics that never log document text, API keys, or vector values.
 
 ### Quality
@@ -36,7 +37,8 @@ Real runtime smoke after the final pipeline was wired into `/api/v1/chat`:
 ### Hardened
 
 - Neural embedding runtime no longer depends on the former fixed 20-second request timeout.
-- Qdrant runtime timeout is configurable.
+- Neural embedding transport now retries transient cold-start failures by default while preserving a fail-fast opt-out (`EMBEDDING_RETRY_COUNT=0`).
+- Qdrant runtime timeout is configurable and transient Qdrant transport stalls are retried by default.
 - Embedding and Qdrant indexing failures now emit safe stage-level diagnostics instead of collapsing into an unexplained `vector_indexed=false` result.
 - Existing API keys, document contents, and vectors remain excluded from logs.
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -21,6 +22,20 @@ _core_embedding_provider = core.embedding_provider
 def _positive_int(name: str, default: int) -> int:
     try:
         return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _nonnegative_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _nonnegative_float(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.getenv(name, str(default))))
     except ValueError:
         return default
 
@@ -55,12 +70,12 @@ def _candidate_limit(final_limit: int) -> int:
 
 
 class RuntimeOpenAIEmbeddingProvider(core.EmbeddingProvider):
-    """OpenAI-compatible embedding provider with configurable cold-start timeout.
+    """OpenAI-compatible embedding provider with cold-start timeout and retries.
 
-    The local multilingual MiniLM service can take longer than 20 seconds to load
-    on the first request. Runtime mode therefore uses an explicit configurable
-    timeout and emits metadata-only diagnostics on failure. No API key, input text,
-    or vector values are logged.
+    Local multilingual MiniLM can take materially longer on the first request while
+    weights are loaded. Runtime mode therefore uses configurable timeout/retry
+    controls and emits metadata-only diagnostics. No API key, input text, document
+    content, or vector values are logged.
     """
 
     def __init__(self):
@@ -81,23 +96,35 @@ class RuntimeOpenAIEmbeddingProvider(core.EmbeddingProvider):
             headers["Authorization"] = f"Bearer {self.api_key}"
         request = Request(endpoint, data=payload, headers=headers, method="POST")
         timeout = _positive_int("EMBEDDING_TIMEOUT_SECONDS", 120)
-        try:
-            with urlopen(request, timeout=timeout) as response:
-                data = json.loads(response.read().decode("utf-8"))
-            vectors = [item["embedding"] for item in sorted(data["data"], key=lambda item: item.get("index", 0))]
-            if not vectors or len(vectors) != len(texts) or any(len(vector) != len(vectors[0]) for vector in vectors):
-                raise ValueError("Embedding provider returned invalid vectors")
-            self.dimensions = len(vectors[0])
-            return vectors
-        except Exception as exc:
-            logger.warning(
-                "embedding request failed provider=openai model=%s timeout_seconds=%s batch_size=%s error_type=%s",
-                self.model or "<unset>",
-                timeout,
-                len(texts),
-                type(exc).__name__,
-            )
-            raise RuntimeError("Configured embedding provider failed") from exc
+        retries = _nonnegative_int("EMBEDDING_RETRY_COUNT", 1)
+        backoff = _nonnegative_float("EMBEDDING_RETRY_BACKOFF_SECONDS", 1.0)
+        total_attempts = retries + 1
+
+        for attempt in range(1, total_attempts + 1):
+            try:
+                with urlopen(request, timeout=timeout) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                vectors = [item["embedding"] for item in sorted(data["data"], key=lambda item: item.get("index", 0))]
+                if not vectors or len(vectors) != len(texts) or any(len(vector) != len(vectors[0]) for vector in vectors):
+                    raise ValueError("Embedding provider returned invalid vectors")
+                self.dimensions = len(vectors[0])
+                return vectors
+            except Exception as exc:
+                logger.warning(
+                    "embedding request failed provider=openai model=%s timeout_seconds=%s batch_size=%s attempt=%s/%s error_type=%s",
+                    self.model or "<unset>",
+                    timeout,
+                    len(texts),
+                    attempt,
+                    total_attempts,
+                    type(exc).__name__,
+                )
+                if attempt >= total_attempts:
+                    raise RuntimeError("Configured embedding provider failed") from exc
+                if backoff:
+                    time.sleep(backoff)
+
+        raise RuntimeError("Configured embedding provider failed")
 
 
 def runtime_embedding_provider() -> core.EmbeddingProvider:
@@ -118,20 +145,32 @@ def _runtime_qdrant_request(method: str, path: str, payload: dict[str, Any] | No
         method=method,
     )
     timeout = _positive_int("QDRANT_TIMEOUT_SECONDS", 10)
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            body = response.read()
-        return json.loads(body.decode("utf-8")) if body else {}
-    except Exception as exc:
-        logger.warning(
-            "qdrant request failed method=%s path=%s collection=%s timeout_seconds=%s error_type=%s",
-            method,
-            path,
-            core.QDRANT_COLLECTION,
-            timeout,
-            type(exc).__name__,
-        )
-        raise
+    retries = _nonnegative_int("QDRANT_RETRY_COUNT", 1)
+    backoff = _nonnegative_float("QDRANT_RETRY_BACKOFF_SECONDS", 0.5)
+    total_attempts = retries + 1
+
+    for attempt in range(1, total_attempts + 1):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                body = response.read()
+            return json.loads(body.decode("utf-8")) if body else {}
+        except Exception as exc:
+            logger.warning(
+                "qdrant request failed method=%s path=%s collection=%s timeout_seconds=%s attempt=%s/%s error_type=%s",
+                method,
+                path,
+                core.QDRANT_COLLECTION,
+                timeout,
+                attempt,
+                total_attempts,
+                type(exc).__name__,
+            )
+            if attempt >= total_attempts:
+                raise
+            if backoff:
+                time.sleep(backoff)
+
+    raise RuntimeError("Qdrant request failed")
 
 
 def runtime_qdrant_upsert(points: list[dict[str, Any]], dimensions: int) -> bool:
@@ -346,6 +385,8 @@ def runtime_quality_status() -> dict[str, Any]:
         "vector_threshold": float(os.getenv("VECTOR_SCORE_THRESHOLD", str(core.VECTOR_SCORE_THRESHOLD))),
         "embedding_provider": os.getenv("EMBEDDING_PROVIDER", "local"),
         "embedding_timeout_seconds": _positive_int("EMBEDDING_TIMEOUT_SECONDS", 120),
+        "embedding_retry_count": _nonnegative_int("EMBEDDING_RETRY_COUNT", 1),
         "qdrant_timeout_seconds": _positive_int("QDRANT_TIMEOUT_SECONDS", 10),
+        "qdrant_retry_count": _nonnegative_int("QDRANT_RETRY_COUNT", 1),
         "app_version": core.app.version,
     }
