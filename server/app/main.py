@@ -42,6 +42,8 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333").rstrip("/")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "knowflow_chunks")
 EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "256"))
 VECTOR_SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.35"))
+HYBRID_STRONG_VECTOR_THRESHOLD = float(os.getenv("HYBRID_STRONG_VECTOR_THRESHOLD", "0.415"))
+HYBRID_AGREEMENT_TOP_K = int(os.getenv("HYBRID_AGREEMENT_TOP_K", "2"))
 
 
 def now() -> str:
@@ -364,16 +366,20 @@ def qdrant_delete(filter_body: dict[str, Any]) -> bool:
         return False
 
 
-def qdrant_search(vector: list[float], user_id: str, kb_id: str | None, limit: int, threshold: float) -> list[tuple[str, float]]:
+def qdrant_search_with_status(vector: list[float], user_id: str, kb_id: str | None, limit: int, threshold: float) -> tuple[list[tuple[str, float]], bool]:
     must = [{"key": "user_id", "match": {"value": user_id}}]
     if kb_id:
         must.append({"key": "knowledge_base_id", "match": {"value": kb_id}})
     try:
         ensure_qdrant_collection(len(vector))
         result = _qdrant_request("POST", f"/collections/{QDRANT_COLLECTION}/points/search", {"vector": vector, "limit": limit, "with_payload": True, "score_threshold": threshold, "filter": {"must": must}})
-        return [(str(item["id"]), float(item.get("score", 0))) for item in result.get("result", [])]
+        return [(str(item["id"]), float(item.get("score", 0))) for item in result.get("result", [])], True
     except Exception:
-        return []
+        return [], False
+
+
+def qdrant_search(vector: list[float], user_id: str, kb_id: str | None, limit: int, threshold: float) -> list[tuple[str, float]]:
+    return qdrant_search_with_status(vector, user_id, kb_id, limit, threshold)[0]
 
 
 def _chunk_rows(user_id: str, kb_id: str | None, ids: list[str]) -> list[sqlite3.Row]:
@@ -410,12 +416,64 @@ def retrieve_vector(user_id: str, kb_id: str | None, query: str, limit: int = 4)
     return _chunk_rows(user_id, kb_id, [chunk_id for chunk_id, _score in matches])
 
 
+def retrieve_vector_evidence(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> tuple[list[tuple[str, float]], bool]:
+    try:
+        provider = embedding_provider()
+        vector = provider.embed_query(query)
+    except Exception:
+        return [], False
+    threshold = float(os.getenv("VECTOR_SCORE_THRESHOLD", str(VECTOR_SCORE_THRESHOLD)))
+    return qdrant_search_with_status(vector, user_id, kb_id, limit, threshold)
+
+
 def rrf_fusion(rankings: list[list[str]], k: int = 60, limit: int = 4) -> list[tuple[str, float]]:
     scores: dict[str, float] = {}
     for ranking in rankings:
         for rank, item_id in enumerate(ranking, 1):
             scores[item_id] = scores.get(item_id, 0.0) + 1 / (k + rank)
     return sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
+
+
+def hybrid_confidence_gate_enabled() -> bool:
+    configured = os.getenv("HYBRID_CONFIDENCE_GATE", "auto").strip().lower()
+    if configured in {"1", "true", "yes", "on"}:
+        return True
+    if configured in {"0", "false", "no", "off"}:
+        return False
+    return os.getenv("EMBEDDING_PROVIDER", "local").lower() != "local"
+
+
+def hybrid_confidence_allows(
+    lexical_ids: list[str],
+    vector_matches: list[tuple[str, float]],
+    strong_threshold: float | None = None,
+    agreement_top_k: int | None = None,
+) -> bool:
+    if not vector_matches:
+        return False
+    threshold = strong_threshold if strong_threshold is not None else float(os.getenv("HYBRID_STRONG_VECTOR_THRESHOLD", str(HYBRID_STRONG_VECTOR_THRESHOLD)))
+    if max(score for _item_id, score in vector_matches) >= threshold:
+        return True
+    top_k = max(1, agreement_top_k if agreement_top_k is not None else int(os.getenv("HYBRID_AGREEMENT_TOP_K", str(HYBRID_AGREEMENT_TOP_K))))
+    lexical_top = set(lexical_ids[:top_k])
+    vector_top = {item_id for item_id, _score in vector_matches[:top_k]}
+    return bool(lexical_top & vector_top)
+
+
+def semantic_backed_rrf_ids(
+    lexical_ids: list[str],
+    vector_matches: list[tuple[str, float]],
+    limit: int = 4,
+    strong_threshold: float | None = None,
+    agreement_top_k: int | None = None,
+) -> list[str]:
+    if not hybrid_confidence_allows(lexical_ids, vector_matches, strong_threshold, agreement_top_k):
+        return []
+    vector_ids = [item_id for item_id, _score in vector_matches]
+    vector_set = set(vector_ids)
+    candidate_limit = max(limit * 2, len(set(lexical_ids) | vector_set))
+    fused = rrf_fusion([lexical_ids, vector_ids], limit=candidate_limit)
+    return [item_id for item_id, _score in fused if item_id in vector_set][:limit]
 
 
 def retrieve(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> list[sqlite3.Row]:
@@ -425,8 +483,18 @@ def retrieve(user_id: str, kb_id: str | None, query: str, limit: int = 4) -> lis
     if mode == "vector":
         return retrieve_vector(user_id, kb_id, query, limit)
     lexical = retrieve_lexical(user_id, kb_id, query, limit)
-    vector = retrieve_vector(user_id, kb_id, query, limit)
-    fused_ids = [item_id for item_id, _score in rrf_fusion([[row["id"] for row in lexical], [row["id"] for row in vector]], limit=limit)]
+    vector_matches, vector_available = retrieve_vector_evidence(user_id, kb_id, query, limit)
+    if not vector_available:
+        return lexical
+    candidate_rows = _chunk_rows(user_id, kb_id, [item_id for item_id, _score in vector_matches])
+    owned_ids = {row["id"] for row in candidate_rows}
+    vector_matches = [(item_id, score) for item_id, score in vector_matches if item_id in owned_ids]
+    lexical_ids = [row["id"] for row in lexical]
+    if hybrid_confidence_gate_enabled():
+        fused_ids = semantic_backed_rrf_ids(lexical_ids, vector_matches, limit=limit)
+    else:
+        vector_ids = [row["id"] for row in candidate_rows]
+        fused_ids = [item_id for item_id, _score in rrf_fusion([lexical_ids, vector_ids], limit=limit)]
     return _chunk_rows(user_id, kb_id, fused_ids)
 
 
@@ -585,7 +653,7 @@ def health() -> dict[str, str]:
 def ready() -> dict[str, Any]:
     with db() as conn:
         conn.execute("SELECT 1")
-    return {"status": "ready", "database": "sqlite", "qdrant": qdrant_available(), "rag_mode": os.getenv("RAG_MODE", RAG_MODE), "embedding_provider": os.getenv("EMBEDDING_PROVIDER", "local"), "demo_ai": os.getenv("DEMO_AI_MODE", "1") == "1"}
+    return {"status": "ready", "database": "sqlite", "qdrant": qdrant_available(), "rag_mode": os.getenv("RAG_MODE", RAG_MODE), "embedding_provider": os.getenv("EMBEDDING_PROVIDER", "local"), "hybrid_confidence_gate": hybrid_confidence_gate_enabled(), "demo_ai": os.getenv("DEMO_AI_MODE", "1") == "1"}
 
 
 @app.post("/api/v1/auth/demo")
