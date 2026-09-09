@@ -82,6 +82,11 @@ def test_openai_compatible_verifier_returns_only_explicit_supported_indices(monk
     assert captured["body"]["max_tokens"] == 64
     assert "thinking" not in captured["body"]
     assert "response_format" not in captured["body"]
+    prompt = captured["body"]["messages"][0]["content"]
+    assert "information need" in prompt
+    assert "short search-style phrases" in prompt
+    assert "specific missing attribute" in prompt
+    assert "topic overlap alone is NOT enough" in prompt
 
 
 def test_deepseek_env_defaults_to_non_thinking_json_output(monkeypatch):
