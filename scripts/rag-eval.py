@@ -12,7 +12,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVER_ROOT = REPO_ROOT / "server"
 sys.path.insert(0, str(SERVER_ROOT))
 
-from app.main import cosine_similarity, embedding_provider, rrf_fusion, search_tokens  # noqa: E402
+from app.main import (  # noqa: E402
+    HYBRID_AGREEMENT_TOP_K,
+    HYBRID_STRONG_VECTOR_THRESHOLD,
+    cosine_similarity,
+    embedding_provider,
+    rrf_fusion,
+    search_tokens,
+    semantic_backed_rrf_ids,
+)
 
 
 def load_dataset(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -38,20 +46,20 @@ def vector_rankings(
     queries: list[dict[str, Any]],
     documents: list[dict[str, Any]],
     threshold: float,
-) -> tuple[Any, list[list[str]]]:
+) -> tuple[Any, list[list[tuple[str, float]]]]:
     provider = embedding_provider()
     document_vectors = provider.embed_documents([document["text"] for document in documents])
-    rankings: list[list[str]] = []
+    rankings: list[list[tuple[str, float]]] = []
     for case in queries:
         query_vector = provider.embed_query(case["query"])
         scored = [
-            (cosine_similarity(query_vector, vector), document["id"])
+            (document["id"], cosine_similarity(query_vector, vector))
             for document, vector in zip(documents, document_vectors)
         ]
         rankings.append(
             [
-                doc_id
-                for score, doc_id in sorted(scored, key=lambda item: (-item[0], item[1]))
+                (doc_id, score)
+                for doc_id, score in sorted(scored, key=lambda item: (-item[1], item[0]))
                 if score >= threshold
             ]
         )
@@ -109,16 +117,39 @@ def main() -> None:
         type=float,
         default=float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.35")),
     )
+    parser.add_argument(
+        "--strong-threshold",
+        type=float,
+        default=float(os.getenv("HYBRID_STRONG_VECTOR_THRESHOLD", str(HYBRID_STRONG_VECTOR_THRESHOLD))),
+        help="A vector score at or above this value can pass the hybrid confidence gate without lexical agreement.",
+    )
+    parser.add_argument(
+        "--agreement-top-k",
+        type=int,
+        default=int(os.getenv("HYBRID_AGREEMENT_TOP_K", str(HYBRID_AGREEMENT_TOP_K))),
+        help="Weak vector evidence must agree with lexical retrieval within this many top-ranked candidates.",
+    )
     args = parser.parse_args()
 
     documents, queries = load_dataset(args.dataset)
     lexical = [lexical_ranking(case["query"], documents) for case in queries]
-    provider, vector = vector_rankings(queries, documents, args.threshold)
-    hybrid = [
+    provider, vector_matches = vector_rankings(queries, documents, args.threshold)
+    vector = [[doc_id for doc_id, _score in ranking] for ranking in vector_matches]
+    hybrid_ungated = [
         [item_id for item_id, _score in rrf_fusion([lexical_rank, vector_rank], limit=len(documents))]
         if lexical_rank or vector_rank
         else []
         for lexical_rank, vector_rank in zip(lexical, vector)
+    ]
+    hybrid = [
+        semantic_backed_rrf_ids(
+            lexical_rank,
+            matches,
+            limit=len(documents),
+            strong_threshold=args.strong_threshold,
+            agreement_top_k=args.agreement_top_k,
+        )
+        for lexical_rank, matches in zip(lexical, vector_matches)
     ]
 
     report = {
@@ -129,8 +160,11 @@ def main() -> None:
         "embedding_dimensions": getattr(provider, "dimensions", None),
         "embedding_model": os.getenv("EMBEDDING_MODEL") or os.getenv("LOCAL_EMBEDDING_MODEL") or None,
         "vector_threshold": args.threshold,
+        "hybrid_strong_vector_threshold": args.strong_threshold,
+        "hybrid_agreement_top_k": args.agreement_top_k,
         "Lexical": metrics(queries, lexical),
         "Vector": metrics(queries, vector),
+        "HybridUngated": metrics(queries, hybrid_ungated),
         "Hybrid": metrics(queries, hybrid),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
