@@ -54,6 +54,18 @@ if ($trackedSensitive) {
     throw "Sensitive release material is tracked by Git: $($trackedSensitive -join ', ')"
 }
 
+# Lightweight tracked-content scan. Exit code 1 from git grep means no matches.
+$secretPattern = '(-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'
+$secretMatches = git grep -n -I -E $secretPattern -- . 2>$null
+$secretScanExit = $LASTEXITCODE
+if ($secretScanExit -eq 0) {
+    throw "Potential secret material found in tracked files:`n$($secretMatches -join [Environment]::NewLine)"
+}
+if ($secretScanExit -ne 1) {
+    throw "Tracked secret scan failed with exit code $secretScanExit"
+}
+Write-Host 'Tracked secret scan: PASS' -ForegroundColor Green
+
 if (-not $SkipTests) {
     & (Join-Path $root 'scripts\test-all.ps1')
     Assert-LastExitCode 'scripts/test-all.ps1'
@@ -107,6 +119,7 @@ $metadata = @{
     commit = $localSha
     created_at = [DateTimeOffset]::UtcNow.ToString('o')
     api_url = $ApiUrl
+    secret_scan = 'PASS'
     signing = @{
         android = 'engineering/local release signing'
         harmonyos = 'engineering/local debug profile'
