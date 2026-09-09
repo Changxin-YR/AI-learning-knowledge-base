@@ -8,6 +8,7 @@ mobile/build/
 mobile/.packages
 server/data/
 artifacts/**/*.log
+artifacts/releases/
 *.iml
 .idea/
 .tmp-provision-tool/
