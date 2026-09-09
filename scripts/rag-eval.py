@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVER_ROOT = REPO_ROOT / "server"
 sys.path.insert(0, str(SERVER_ROOT))
 
+from app.evidence_verifier import OpenAICompatibleEvidenceVerifier  # noqa: E402
 from app.main import (  # noqa: E402
     HYBRID_AGREEMENT_TOP_K,
     HYBRID_STRONG_VECTOR_THRESHOLD,
@@ -203,8 +204,27 @@ def calibrate_rerank_threshold(
     return best_threshold, best_metrics, len(candidates)
 
 
+def verify_answerability_rankings(
+    queries: list[dict[str, Any]],
+    documents: list[dict[str, Any]],
+    candidate_rankings: list[list[str]],
+    candidate_limit: int,
+) -> tuple[OpenAICompatibleEvidenceVerifier, list[list[str]]]:
+    verifier = OpenAICompatibleEvidenceVerifier.from_env()
+    by_id = {document["id"]: document for document in documents}
+    verified: list[list[str]] = []
+    for case, candidate_ids in zip(queries, candidate_rankings):
+        ids = [item_id for item_id in candidate_ids[:candidate_limit] if item_id in by_id]
+        passages = [by_id[item_id]["text"] for item_id in ids]
+        supported = set(verifier.verify(case["query"], passages))
+        verified.append([item_id for index, item_id in enumerate(ids) if index in supported])
+    return verifier, verified
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate KnowFlow lexical, vector, hybrid and optional reranked retrieval.")
+    parser = argparse.ArgumentParser(
+        description="Evaluate KnowFlow lexical, vector, hybrid, reranked and evidence-verified retrieval."
+    )
     parser.add_argument(
         "--dataset",
         type=Path,
@@ -241,7 +261,7 @@ def main() -> None:
         "--rerank-threshold",
         type=float,
         default=float(os.getenv("RERANK_SCORE_THRESHOLD", "0.0")),
-        help="Cross-Encoder score required for a candidate to be emitted.",
+        help="Cross-Encoder score required for a candidate to be emitted. This is a ranking diagnostic, not an answerability guarantee.",
     )
     parser.add_argument(
         "--rerank-candidate-limit",
@@ -255,6 +275,16 @@ def main() -> None:
     )
     parser.add_argument("--min-rerank-recall", type=float, default=0.95)
     parser.add_argument("--min-rerank-citation", type=float, default=0.90)
+    parser.add_argument(
+        "--verify-answerability",
+        action="store_true",
+        help="Use a configured OpenAI-compatible model as a strict evidence-sufficiency verifier after retrieval/reranking.",
+    )
+    parser.add_argument(
+        "--answerability-candidate-limit",
+        type=int,
+        default=int(os.getenv("ANSWERABILITY_CANDIDATE_LIMIT", "4")),
+    )
     args = parser.parse_args()
 
     dataset_path = resolve_cli_path(args.dataset)
@@ -297,6 +327,8 @@ def main() -> None:
         "Hybrid": metrics(queries, hybrid),
     }
 
+    verification_source = hybrid
+    verification_source_name = "Hybrid"
     if args.rerank or args.calibrate_rerank:
         scored_rankings = rerank_scored_rankings(
             queries,
@@ -321,6 +353,7 @@ def main() -> None:
                 "selected_metrics": selected_metrics,
             }
         reranked = filter_scored_rankings(scored_rankings, selected_threshold)
+        reranked_order = [[item_id for item_id, _score in ranking] for ranking in scored_rankings]
         report["reranker"] = {
             "model": os.getenv("RERANK_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"),
             "candidate_limit": max(1, args.rerank_candidate_limit),
@@ -328,6 +361,25 @@ def main() -> None:
             "calibration": calibration,
         }
         report["HybridReranked"] = metrics(queries, reranked)
+        # The Cross-Encoder is used as an ordering signal for the verifier; its raw
+        # relevance score is deliberately not treated as an answerability verdict.
+        verification_source = reranked_order
+        verification_source_name = "CrossEncoderOrder"
+
+    if args.verify_answerability:
+        verifier, verified = verify_answerability_rankings(
+            queries,
+            documents,
+            verification_source,
+            max(1, args.answerability_candidate_limit),
+        )
+        report["answerability_verifier"] = {
+            "model": verifier.model,
+            "candidate_limit": max(1, args.answerability_candidate_limit),
+            "source": verification_source_name,
+            "policy": "explicit evidence only; topic overlap and outside knowledge rejected",
+        }
+        report["HybridVerified"] = metrics(queries, verified)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
