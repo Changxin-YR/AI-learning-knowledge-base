@@ -32,6 +32,19 @@ def load_dataset(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
     return documents, queries
 
 
+def resolve_cli_path(path: Path) -> Path:
+    """Resolve CLI paths relative to the repository root on every platform."""
+    return path.resolve() if path.is_absolute() else (REPO_ROOT / path).resolve()
+
+
+def display_path(path: Path) -> str:
+    """Prefer a stable repository-relative path in reports when possible."""
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def lexical_ranking(query: str, documents: list[dict[str, Any]]) -> list[str]:
     query_tokens = search_tokens(query)
     scored = []
@@ -131,7 +144,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    documents, queries = load_dataset(args.dataset)
+    dataset_path = resolve_cli_path(args.dataset)
+    output_path = resolve_cli_path(args.output)
+
+    documents, queries = load_dataset(dataset_path)
     lexical = [lexical_ranking(case["query"], documents) for case in queries]
     provider, vector_matches = vector_rankings(queries, documents, args.threshold)
     vector = [[doc_id for doc_id, _score in ranking] for ranking in vector_matches]
@@ -153,7 +169,7 @@ def main() -> None:
     ]
 
     report = {
-        "dataset": str(args.dataset.relative_to(REPO_ROOT)),
+        "dataset": display_path(dataset_path),
         "case_count": len(queries),
         "document_count": len(documents),
         "embedding_provider": provider.__class__.__name__,
@@ -167,8 +183,8 @@ def main() -> None:
         "HybridUngated": metrics(queries, hybrid_ungated),
         "Hybrid": metrics(queries, hybrid),
     }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
