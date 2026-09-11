@@ -238,7 +238,7 @@ def main() -> None:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.35")),
+        default=float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.25")),
     )
     parser.add_argument(
         "--strong-threshold",
