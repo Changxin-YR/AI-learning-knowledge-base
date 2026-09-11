@@ -13,13 +13,13 @@ KnowFlow AI 是一个面向大学生与开发者的 **AI 学习知识库**：Flu
 - **Verified Hybrid RAG**：Lexical + Qdrant Vector Retrieval + Reciprocal Rank Fusion + Cross-Encoder + Evidence Verifier。
 - **神经语义检索**：可选 multilingual MiniLM 本地 Embedding，384 维 Qdrant 独立 collection。
 - **可追溯回答**：回答返回 document/chunk citation；严格 verified 模式会拒绝“主题相关但资料没有答案”的伪引用。
-- **DeepSeek / OpenAI-compatible LLM**：服务端 Provider 接入；已完成真实 DeepSeek Tool Calling、RAG 与 Evidence Verification 验证。
+- **DeepSeek / OpenAI-compatible LLM**：服务端 Provider 接入；已完成真实 DeepSeek Tool Calling、RAG 与 Evidence Verification 验证。配置 `OPENAI_*` 且 `DEMO_AI_MODE=0` 时，`/chat` 由模型**仅依据检索片段**生成回答；模型判定证据不足时返回 `NOT_ENOUGH_EVIDENCE` 并**丢弃引用**（fail-closed）。
 - **Agent Runtime**：JSON Schema 参数校验、Service dispatch、读写 Tool、`agent_runs` / `tool_calls` 审计，不允许 Agent 任意执行 SQL。
 - **Long-term Memory**：CRUD、检索、删除、用户隔离，可由 Agent 保存和召回学习上下文。
 - **Repository Learning**：仅允许公开 GitHub/GitLab/Gitee 仓库；DNS/IP SSRF 防护、禁止 Git redirect、shallow clone、静态分析 README/依赖/入口/源码并写入知识库。
 - **学习闭环**：学习计划、Task、Quiz、Mastery 与多轮 Conversation。
 - **双端文件选择**：Android 使用稳定系统 Picker；HarmonyOS 对系统 Picker 异常提供兼容路径，保持真实文件选择与上传。
-- **离线降级**：Qdrant 不可用时保留 lexical fallback；云模型未配置时仍可运行 deterministic/demo 流程。
+- **离线降级**：Qdrant 不可用时保留 lexical fallback；云模型未配置或 `DEMO_AI_MODE=1` 时 `/chat` 返回 deterministic 的带引用片段摘要；Provider 调用失败不会丢弃已通过检索/校验的引用。
 - **运行时可观测性**：神经 Embedding / Qdrant timeout 可配置，索引失败记录阶段级诊断但不记录正文、API Key 或向量值。
 
 ## 架构

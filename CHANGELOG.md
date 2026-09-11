@@ -2,6 +2,16 @@
 
 All notable changes to KnowFlow AI are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Grounded model-generated `/chat` answers: with `OPENAI_*` configured and `DEMO_AI_MODE=0` the provider answers strictly from retrieved passages, and `CHAT_TIMEOUT_SECONDS` (default `60`) bounds the call.
+
+### Changed
+
+- `/chat` fails closed when the model reports `NOT_ENOUGH_EVIDENCE` (its citations are dropped) and keeps the deterministic cited excerpt when the provider is unreachable.
+
 ## [1.1.0] - 2026-09-09
 
 ### Added
