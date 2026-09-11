@@ -204,6 +204,8 @@ v1.1.0 最终未参与调参的 Holdout V3（24 answerable / 12 no-answer）在 
 | Citation Hit Rate | 1.0000 |
 | No-answer false citation rate | 0.0000 |
 
+> 2026-09-11 复核：默认 `VECTOR_SCORE_THRESHOLD` 由 `0.35` 调整为 `0.25` 后，使用与上表相同的验收命令对同一 Holdout V3 一次性复跑，`HybridVerified` 各项数值逐项一致（Recall@3 / Citation Hit Rate `1.0000`，无答案伪引用 `0.0000`）。
+
 真实 Runtime Smoke：支持问题 citation=`1`，高混淆无答案问题 citation=`0`，上传文档 4 chunks 对应 Qdrant 4 points。
 
 ## 自动化质量门禁

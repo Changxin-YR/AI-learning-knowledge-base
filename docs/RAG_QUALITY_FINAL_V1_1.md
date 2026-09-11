@@ -125,6 +125,41 @@ The v1.1.0 runtime pipeline is therefore:
 
 `Lexical + Neural Vector -> RRF candidates -> Cross-Encoder ordering -> Evidence Sufficiency Verification -> Citation / No Answer`
 
+## Post-v1.1 re-verification: `VECTOR_SCORE_THRESHOLD=0.25`
+
+Date: 2026-09-11
+
+The v1.1 numbers above were measured with `VECTOR_SCORE_THRESHOLD=0.35`. A sweep on the tuning set
+(`server/tests/rag_eval/eval_dataset.json`, neural MiniLM, gated Hybrid) showed the no-answer
+false-citation rate staying flat at `0.125` across `0.20`-`0.35`, while `0.25` holds Recall@3 at
+`1.0000` and MRR at `0.9792` (versus `0.9792`/`0.9688` at `0.35`). The shipped default is therefore
+`VECTOR_SCORE_THRESHOLD=0.25`.
+
+The same threshold feeds the candidate set of both gated Hybrid and `verified` mode
+(`retrieve_vector_evidence`), so the final untouched Holdout V3 was re-run **once** at the new
+default using the v1.1 acceptance command, before any result was observed:
+
+```powershell
+python scripts/rag-eval.py --dataset server/tests/rag_eval/holdout_v3_dataset.json --rerank --verify-answerability
+```
+
+| Metric | HybridVerified @ 0.25 | v1.1 record @ 0.35 |
+|---|---:|---:|
+| Recall@3 | 1.0000 | 1.0000 |
+| Recall@5 | 1.0000 | 1.0000 |
+| MRR | 1.0000 | 1.0000 |
+| Citation Hit Rate | 1.0000 | 1.0000 |
+| No-answer false citation rate | 0.0000 | 0.0000 |
+
+Intermediate stages get looser at the lower floor (`Vector` and gated `Hybrid` no-answer false
+citation rates move from `0.8333` to `1.0000`; `HybridReranked` stays at `0.7917`/`0.0000`). That is
+the intended shape of the pipeline: the lower floor admits weaker evidence into RRF, the
+Cross-Encoder only orders it, and the strict verifier remains the component that separates
+"topically related" from "explicitly answers". The verified outcome on the untouched holdout is
+unchanged.
+
+Verifier model used for this re-run: `deepseek-flash`.
+
 ## Scope note
 
 This is an engineering/simulator acceptance result. It does not claim physical-device certification, ARM64 physical-runtime certification, Google Play production signing, or AppGallery production signing.

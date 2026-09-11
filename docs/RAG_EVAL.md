@@ -50,7 +50,7 @@ KnowFlow now uses a semantic-backed confidence gate for neural/openai embedding 
 Default calibration discovered from the neural MiniLM run:
 
 ```env
-VECTOR_SCORE_THRESHOLD=0.35
+VECTOR_SCORE_THRESHOLD=0.25
 HYBRID_CONFIDENCE_GATE=auto
 HYBRID_STRONG_VECTOR_THRESHOLD=0.415
 HYBRID_AGREEMENT_TOP_K=2
@@ -120,13 +120,13 @@ $env:EMBEDDING_PROVIDER="openai"
 $env:EMBEDDING_BASE_URL="http://127.0.0.1:8002"
 $env:EMBEDDING_API_KEY=""
 $env:EMBEDDING_MODEL="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-$env:VECTOR_SCORE_THRESHOLD="0.35"
+$env:VECTOR_SCORE_THRESHOLD="0.25"
 $env:HYBRID_CONFIDENCE_GATE="1"
 $env:HYBRID_STRONG_VECTOR_THRESHOLD="0.415"
 $env:HYBRID_AGREEMENT_TOP_K="2"
 ```
 
-The previously measured calibration result for the neural model established that `0.35` preserved substantially more recall than higher vector thresholds. The confidence gate is intended to reduce false citations without using an excessively high vector threshold as a blunt rejection mechanism.
+A threshold sweep on the tuning set (`eval_dataset`, neural MiniLM, gated Hybrid) established `0.25` as the default: from `0.20` to `0.35` the no-answer false-citation rate stays flat at `0.125`, while `0.25` holds Recall@3 at `1.0000` and MRR at `0.9792`, versus `0.9792`/`0.9688` at `0.35`. Thresholds at or above `0.375` lose recall without lowering false citations, and `0.45` reaches zero false citations only by discarding a fifth of the answerable cases. Precision comes from the lexical-agreement rule (`HYBRID_AGREEMENT_TOP_K`), not from the vector floor, so admitting weaker corroborated evidence does not weaken the gate.
 
 ## Acceptance Guidance
 

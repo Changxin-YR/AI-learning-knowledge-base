@@ -10,6 +10,7 @@ All notable changes to KnowFlow AI are documented here.
 
 ### Changed
 
+- Default `VECTOR_SCORE_THRESHOLD` lowered from `0.35` to `0.25` after a tuning-set sweep; the untouched Holdout V3 `HybridVerified` re-verification reproduced Recall@3 `1.0000`, Citation Hit Rate `1.0000` and a no-answer false-citation rate of `0.0000`.
 - `/chat` fails closed when the model reports `NOT_ENOUGH_EVIDENCE` (its citations are dropped) and keeps the deterministic cited excerpt when the provider is unreachable.
 
 ## [1.1.0] - 2026-09-09
