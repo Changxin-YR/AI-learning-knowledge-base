@@ -771,12 +771,21 @@ def chat(body: ChatIn, user=Depends(current_user)) -> dict[str, Any]:
     if body.conversation_id:
         owned_conversation(user["id"], body.conversation_id)
     rows = retrieve(user["id"], body.knowledge_base_id, body.message)
+    answer: str | None = None
+    if rows and chat_generation_enabled():
+        try:
+            answer = provider_chat_answer(body.message, rows)
+        except InsufficientEvidenceError:
+            # Fail closed: the model rejected the retrieved evidence, so its citations must go with it.
+            rows = []
+        except HTTPException:
+            # A provider outage must not remove an already-grounded citation; use the excerpt fallback below.
+            answer = None
     if rows:
-        best = rows[0]
-        answer = f"基于你的知识库，{best['content'][:500]}"
+        answer = answer or f"{CHAT_DETERMINISTIC_PREFIX}{rows[0]['content'][:500]}"
         citations = [citation(row) for row in rows]
     else:
-        answer = "我还没有找到相关资料。请先上传文档，或换一个更具体的问题。"
+        answer = CHAT_NO_EVIDENCE_ANSWER
         citations = []
     conversation_id = body.conversation_id or str(uuid.uuid4())
     with db() as conn:
@@ -1019,18 +1028,64 @@ def provider_configured() -> bool:
     return all(os.getenv(key) for key in ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL"))
 
 
-def provider_completion(messages: list[dict[str, Any]]) -> dict[str, Any]:
+def provider_completion(
+    messages: list[dict[str, Any]],
+    *,
+    use_tools: bool = True,
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
     endpoint = os.getenv("OPENAI_BASE_URL", "").rstrip("/")
     if not endpoint.endswith("/chat/completions"):
         endpoint += "/chat/completions"
-    tools = [{"type": "function", "function": {"name": name, "description": spec["description"], "parameters": {"type": "object", "properties": spec["properties"], "required": spec["required"]}}} for name, spec in TOOL_SPECS.items()]
-    payload = json.dumps({"model": os.environ["OPENAI_MODEL"], "messages": messages, "tools": tools, "tool_choice": "auto", "temperature": 0.2}).encode()
+    request_body: dict[str, Any] = {"model": os.environ["OPENAI_MODEL"], "messages": messages, "temperature": 0.2}
+    if use_tools:
+        tools = [{"type": "function", "function": {"name": name, "description": spec["description"], "parameters": {"type": "object", "properties": spec["properties"], "required": spec["required"]}}} for name, spec in TOOL_SPECS.items()]
+        request_body["tools"] = tools
+        request_body["tool_choice"] = "auto"
+    payload = json.dumps(request_body).encode()
     request = Request(endpoint, data=payload, headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}", "Content-Type": "application/json"}, method="POST")
     try:
-        with urlopen(request, timeout=20) as response:
+        with urlopen(request, timeout=timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise HTTPException(502, "Configured model provider failed") from exc
+
+
+CHAT_INSUFFICIENT_EVIDENCE = "NOT_ENOUGH_EVIDENCE"
+CHAT_NO_EVIDENCE_ANSWER = "我还没有找到相关资料。请先上传文档，或换一个更具体的问题。"
+CHAT_DETERMINISTIC_PREFIX = "基于你的知识库，"
+CHAT_TIMEOUT_SECONDS = float(os.getenv("CHAT_TIMEOUT_SECONDS", "60"))
+CHAT_SYSTEM_PROMPT = (
+    "你是 KnowFlow 学习助手。只能依据用户消息中给出的知识库片段回答，不得使用片段之外的任何知识，"
+    "不得编造来源或引用。如果这些片段不足以回答，只回复 NOT_ENOUGH_EVIDENCE，不要输出任何其它内容。"
+    "回答要简洁，并使用与提问相同的语言。"
+)
+
+
+class InsufficientEvidenceError(RuntimeError):
+    """The configured model judged the retrieved passages insufficient to answer the question."""
+
+
+def chat_generation_enabled() -> bool:
+    """Model-generated answers are opt-in; demo mode keeps the deterministic cited excerpt."""
+    return provider_configured() and os.getenv("DEMO_AI_MODE", "1") != "1"
+
+
+def provider_chat_answer(question: str, rows: list[sqlite3.Row]) -> str:
+    """Ask the configured provider for an answer grounded strictly in the retrieved passages."""
+    evidence = "\n\n".join(
+        f"[{index}] {row['filename']} 第{row['position'] + 1}节：{row['content']}"
+        for index, row in enumerate(rows, start=1)
+    )
+    messages = [
+        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+        {"role": "user", "content": f"知识库片段：\n{evidence}\n\n问题：{question}"},
+    ]
+    response = provider_completion(messages, use_tools=False, timeout_seconds=CHAT_TIMEOUT_SECONDS)
+    answer = (response.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+    if not answer or CHAT_INSUFFICIENT_EVIDENCE in answer:
+        raise InsufficientEvidenceError("model reported insufficient evidence")
+    return answer
 
 
 def audit_tool_call(run_id: str, user_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:

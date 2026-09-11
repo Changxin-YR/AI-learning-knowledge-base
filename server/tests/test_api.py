@@ -343,3 +343,104 @@ def test_configured_provider_can_call_a_tool_then_return_final_text(monkeypatch)
     assert response.status_code == 200
     assert response.json()["content"] == "你最近重点学习 Flutter。"
     assert response.json()["tool_calls"][0]["name"] == "search_memory"
+
+
+def _chat_kb_with_provider(monkeypatch, completion):
+    """Configure a provider, patch its completion call, and upload a chat knowledge base."""
+    monkeypatch.setenv("DEMO_AI_MODE", "0")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://provider.example.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-provider-key")
+    monkeypatch.setenv("OPENAI_MODEL", "test-model")
+    monkeypatch.setattr(main, "provider_completion", completion)
+    token = client.post("/api/v1/auth/demo").json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    kb_id = client.post(
+        "/api/v1/knowledge-bases", json={"name": "Provider chat KB"}, headers=headers
+    ).json()["id"]
+    client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        files={
+            "file": (
+                "notes.md",
+                b"# Python\nPython is a programming language. Lists hold ordered values.",
+                "text/markdown",
+            )
+        },
+        headers=headers,
+    )
+    return headers, kb_id
+
+
+def test_chat_generates_grounded_answer_with_provider_when_demo_mode_is_off(monkeypatch):
+    captured: dict = {}
+
+    def completion(messages, **kwargs):
+        captured["messages"] = messages
+        captured["kwargs"] = kwargs
+        return {"choices": [{"message": {"role": "assistant", "content": "Python 是一种编程语言。"}}]}
+
+    headers, kb_id = _chat_kb_with_provider(monkeypatch, completion)
+    response = client.post(
+        "/api/v1/chat", json={"knowledge_base_id": kb_id, "message": "What is Python?"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["content"] == "Python 是一种编程语言。"
+    assert response.json()["citations"]
+    assert captured["kwargs"]["use_tools"] is False
+    prompt = captured["messages"][1]["content"]
+    assert "Python is a programming language" in prompt
+    assert "What is Python?" in prompt
+
+
+def test_chat_fails_closed_when_provider_reports_insufficient_evidence(monkeypatch):
+    def completion(messages, **kwargs):
+        return {"choices": [{"message": {"role": "assistant", "content": "NOT_ENOUGH_EVIDENCE"}}]}
+
+    headers, kb_id = _chat_kb_with_provider(monkeypatch, completion)
+    response = client.post(
+        "/api/v1/chat", json={"knowledge_base_id": kb_id, "message": "What is Python?"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["citations"] == []
+    assert response.json()["content"] == main.CHAT_NO_EVIDENCE_ANSWER
+    assert response.json()["tool_events"][0]["count"] == 0
+
+
+def test_chat_keeps_cited_excerpt_when_provider_is_unavailable(monkeypatch):
+    def completion(messages, **kwargs):
+        raise HTTPException(status_code=502, detail="Configured model provider failed")
+
+    headers, kb_id = _chat_kb_with_provider(monkeypatch, completion)
+    response = client.post(
+        "/api/v1/chat", json={"knowledge_base_id": kb_id, "message": "What is Python?"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["citations"]
+    assert response.json()["content"].startswith(main.CHAT_DETERMINISTIC_PREFIX)
+
+
+def test_chat_stays_deterministic_in_demo_mode(monkeypatch):
+    def completion(messages, **kwargs):
+        raise AssertionError("demo mode must not call the model provider")
+
+    monkeypatch.setenv("DEMO_AI_MODE", "1")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://provider.example.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-provider-key")
+    monkeypatch.setenv("OPENAI_MODEL", "test-model")
+    monkeypatch.setattr(main, "provider_completion", completion)
+    token = client.post("/api/v1/auth/demo").json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    kb_id = client.post(
+        "/api/v1/knowledge-bases", json={"name": "Demo mode KB"}, headers=headers
+    ).json()["id"]
+    client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        files={"file": ("notes.md", b"# Python\nPython is a programming language.", "text/markdown")},
+        headers=headers,
+    )
+    response = client.post(
+        "/api/v1/chat", json={"knowledge_base_id": kb_id, "message": "What is Python?"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["citations"]
+    assert response.json()["content"].startswith(main.CHAT_DETERMINISTIC_PREFIX)
