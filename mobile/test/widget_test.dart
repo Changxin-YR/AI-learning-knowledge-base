@@ -40,6 +40,10 @@ void main() {
     expect(find.text('notes.md'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.delete_outline));
     await tester.pumpAndSettle();
+    // Deleting now requires an explicit confirmation.
+    expect(find.text('删除文档'), findsOneWidget);
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
     expect(deleted, 'doc-1');
     expect(find.text('notes.md'), findsNothing);
   });
@@ -71,6 +75,8 @@ void main() {
     await tester.tap(find.text('上传文件'));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
 
     expect(deleted, 'server-doc-7');

@@ -1,2 +1,0 @@
-KNOWFLOW_ROUND7_TXT
-HarmonyOS compatibility picker acceptance.

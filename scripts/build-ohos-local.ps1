@@ -60,7 +60,10 @@ try {
         material = $material
     })
     $buildProfile.app.products[0] | Add-Member -NotePropertyName signingConfig -NotePropertyValue 'default' -Force
-    $buildProfile | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 $buildProfilePath
+    # NOTE: PowerShell 5.1 "Set-Content -Encoding utf8" prepends a UTF-8 BOM, which makes
+    # hvigor fail to parse build-profile.json5 ("Path not found ... check field: modules").
+    # Always write it BOM-free.
+    [System.IO.File]::WriteAllText($buildProfilePath, ($buildProfile | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
 
     flutter build hap --$Mode --target-platform $TargetPlatform --dart-define=API_BASE_URL=$ApiUrl
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

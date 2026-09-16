@@ -23,3 +23,10 @@ key.properties
 artifacts/ohos/*.json
 mobile/android/key.properties
 mobile/android/*.keystore
+
+# editor / manual backups
+*.bak
+*.bak-*
+*.orig
+*.rej
+

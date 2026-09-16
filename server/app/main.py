@@ -815,18 +815,62 @@ def conversations(user=Depends(current_user)) -> list[dict[str, Any]]:
 
 @app.post("/api/v1/learning/plans", status_code=201)
 def create_plan(body: PlanIn, user=Depends(current_user)) -> dict[str, Any]:
+    """Create a study plan once per goal.
+
+    Repeated taps used to append an identical 7-task block every time, which is
+    how the demo account ended up with 165 near-duplicate tasks. The endpoint is
+    idempotent per (user, goal): an existing plan with the same goal and at
+    least one surviving task is returned unchanged instead of being duplicated.
+    """
+    goal = body.goal.strip() or body.goal
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT * FROM study_plans WHERE user_id=? AND goal=? ORDER BY created_at DESC LIMIT 1",
+            (user["id"], goal),
+        ).fetchone()
+        if existing:
+            rows = conn.execute(
+                "SELECT * FROM study_tasks WHERE plan_id=? ORDER BY due_date, rowid",
+                (existing["id"],),
+            ).fetchall()
+            if rows:
+                return {
+                    "id": existing["id"],
+                    "goal": existing["goal"],
+                    "days": existing["days"],
+                    "tasks": [
+                        {
+                            "id": row["id"],
+                            "title": row["title"],
+                            "due_date": row["due_date"],
+                            "completed": bool(row["completed"]),
+                        }
+                        for row in rows
+                    ],
+                    "created_count": 0,
+                    "skipped_count": len(rows),
+                    "idempotent": True,
+                }
     plan_id = str(uuid.uuid4())
     created = datetime.now(timezone.utc)
     tasks = []
     with db() as conn:
-        conn.execute("INSERT INTO study_plans VALUES (?,?,?,?,?)", (plan_id, user["id"], body.goal, body.days, now()))
+        conn.execute("INSERT INTO study_plans VALUES (?,?,?,?,?)", (plan_id, user["id"], goal, body.days, now()))
         for index in range(body.days):
             task_id = str(uuid.uuid4())
             due = (created + timedelta(days=index)).date().isoformat()
-            title = f"{body.goal} · 第 {index + 1} 天"
+            title = f"{goal} · 第 {index + 1} 天"
             conn.execute("INSERT INTO study_tasks VALUES (?,?,?,?,?)", (task_id, plan_id, title, due, 0))
             tasks.append({"id": task_id, "title": title, "due_date": due, "completed": False})
-    return {"id": plan_id, "goal": body.goal, "days": body.days, "tasks": tasks}
+    return {
+        "id": plan_id,
+        "goal": goal,
+        "days": body.days,
+        "tasks": tasks,
+        "created_count": len(tasks),
+        "skipped_count": 0,
+        "idempotent": False,
+    }
 
 
 @app.get("/api/v1/learning/tasks")

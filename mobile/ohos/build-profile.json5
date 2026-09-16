@@ -1,38 +1,53 @@
 {
-  "app": {
-    "signingConfigs": [],
-    "products": [
-      {
-        "name": "default",
-        "compatibleSdkVersion": "6.0.2(22)",
-        "runtimeOS": "HarmonyOS",
-        "targetSdkVersion": "6.0.2(22)"
-      }
-    ],
-    "buildModeSet": [
-      {
-        "name": "debug"
-      },
-      {
-        "name": "profile"
-      },
-      {
-        "name": "release"
-      }
-    ]
-  },
-  "modules": [
-    {
-      "name": "entry",
-      "srcPath": "./entry",
-      "targets": [
-        {
-          "name": "default",
-          "applyToProducts": [
-            "default"
-          ]
-        }
-      ]
-    }
-  ]
+    "app":  {
+                "signingConfigs":  [
+                                       {
+                                           "name":  "default",
+                                           "type":  "HarmonyOS",
+                                           "material":  {
+                                                            "storeFile":  "C:\\Users\\27363\\.ohos\\config\\default_ohos_a3AfiieCUte1AJfa1OYesU8KrY7l43yCiSt3Pn09GYE=.p12",
+                                                            "storePassword":  "0000001B35E84144489C423693CC3BF4A3ADC698A0F271CA57CACC94D624F5349FCB10637D0BB6BE93B203",
+                                                            "keyAlias":  "debugKey",
+                                                            "keyPassword":  "0000001BE7AB12F42EFDD9A898C23AD2B34ED2569E415379AD4DB300EE4E8E40EE9690B46912A1EB64361B",
+                                                            "signAlg":  "SHA256withECDSA",
+                                                            "profile":  "C:\\Users\\27363\\.ohos\\config\\default_ohos_a3AfiieCUte1AJfa1OYesU8KrY7l43yCiSt3Pn09GYE=.p7b",
+                                                            "certpath":  "C:\\Users\\27363\\.ohos\\config\\default_ohos_a3AfiieCUte1AJfa1OYesU8KrY7l43yCiSt3Pn09GYE=.cer"
+                                                        }
+                                       }
+                                   ],
+                "products":  [
+                                 {
+                                     "name":  "default",
+                                     "compatibleSdkVersion":  "6.0.2(22)",
+                                     "runtimeOS":  "HarmonyOS",
+                                     "targetSdkVersion":  "6.0.2(22)",
+                                     "signingConfig":  "default"
+                                 }
+                             ],
+                "buildModeSet":  [
+                                     {
+                                         "name":  "debug"
+                                     },
+                                     {
+                                         "name":  "profile"
+                                     },
+                                     {
+                                         "name":  "release"
+                                     }
+                                 ]
+            },
+    "modules":  [
+                    {
+                        "name":  "entry",
+                        "srcPath":  "./entry",
+                        "targets":  [
+                                        {
+                                            "name":  "default",
+                                            "applyToProducts":  [
+                                                                    "default"
+                                                                ]
+                                        }
+                                    ]
+                    }
+                ]
 }
